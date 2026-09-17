@@ -12,3 +12,19 @@ html, body {
   inset: 0;
   overflow: hidden;
 }
+
+.screen { padding: 20px; height: 100%; overflow-y: auto; }
+.screen--setup textarea {
+  width: 100%; min-height: 30vh; font-size: 16px; padding: 12px;
+  background: #1a1a1c; color: #fff; border: 1px solid #333; border-radius: 8px;
+}
+.screen--setup label { display: block; margin-top: 16px; }
+.row { display: flex; gap: 8px; margin-top: 6px; }
+.row button {
+  flex: 1; padding: 12px; font-size: 20px; background: #1a1a1c; color: #fff;
+  border: 1px solid #333; border-radius: 8px;
+}
+button.primary {
+  margin-top: 24px; width: 100%; padding: 16px; font-size: 18px;
+  background: #ff5a36; color: #fff; border: none; border-radius: 12px;
+}
