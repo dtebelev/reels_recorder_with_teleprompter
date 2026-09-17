@@ -28,36 +28,47 @@ open and described below in "Open bugs from live device QA" — read
 that section before doing anything else.** `node --test
 tests/*.test.mjs` passes (11 tests).
 
-### How the live testing session worked (for next time)
+### How to test on a real device (current method — use this, not localtunnel)
 
-`getUserMedia` requires a secure context, so a phone can't just hit
-this machine's LAN IP over plain HTTP. The working setup was:
+The first live-QA round used a `localtunnel` HTTPS tunnel to a local
+`serve` process. **It was replaced the same day** because the free
+tunnel service was too flaky (random 502/408s, URL changes on every
+restart). The project is now on GitHub and deployed to Vercel instead:
 
-```bash
-cd "E:\REELS RECORDER with TELEPROMPTER"
-npx --yes serve . -l 3000              # run in background, keep alive
-npx --yes localtunnel --port 3000      # run in background, keep alive; prints an https://*.loca.lt URL
-```
+- Repo: https://github.com/dtebelev/reels_recorder_with_teleprompter
+- Stable production URL: **https://reels-recorder-teleprompter.vercel.app**
+- Vercel project is already linked to the GitHub repo (via `vercel`
+  CLI, logged in as `dtebelev-3136`) — **pushing to `main` auto-deploys**.
+  So the workflow going forward is just:
 
-Open the printed `https://*.loca.lt` URL on the phone. The **first
-visit** to a `loca.lt` URL shows an interstitial page asking for a
-"password" — that's actually the tunneling machine's public IP. Get it
-with `curl -s https://loca.lt/mytunnelpassword`. The free localtunnel
-service is flaky — connections randomly return 502/408 and need a
-restart. Wrapping it in `while true; do npx --yes localtunnel --port
-3000; sleep 2; done` makes it auto-restart, but note **each restart
-gets a new random subdomain** (URL changes) unless you pass
-`--subdomain <fixed-name>` — even then, a fixed subdomain sometimes
-came back 502 for a while and a random one had to be used instead.
-Always re-verify the current URL with `curl -s -o /dev/null -w
-"%{http_code}" <url>/` before handing it to the user — don't assume a
-previously-given URL is still live.
+  ```bash
+  cd "E:\REELS RECORDER with TELEPROMPTER"
+  git add -A
+  git commit -m "..."
+  git push
+  # wait ~10-20s, then have the user reload
+  # https://reels-recorder-teleprompter.vercel.app on their phone
+  ```
 
-Background bash processes in this harness get killed if you wrap them
-in a compound command that itself finishes (e.g. `cmd & sleep 2; cat
-log`) — the wrapping shell exiting tears down its children. Launch
-`serve`/`localtunnel` as their own standalone background command with
-nothing else in the same call, then poll their log file separately.
+- To force a specific deploy without waiting on the git-push webhook
+  (e.g. to test uncommitted changes), run `npx --yes vercel --prod
+  --yes` from the project directory — it deploys the current working
+  directory regardless of git state and prints a URL; the previous
+  first-time run needed `--name reels-recorder-teleprompter` because
+  the folder name itself (`REELS RECORDER with TELEPROMPTER`, spaces
+  and capitals) isn't a valid Vercel project name, but the project now
+  already exists so that shouldn't be needed again.
+- `.agents/` (the local skills directory) and any `Screenshot*.png`
+  files at the repo root are gitignored — they're local tooling/scratch
+  files, not app code, and shouldn't be pushed.
+
+If you ever do need the old tunnel approach again (e.g. no internet
+access to push): `npx --yes serve . -l 3000` +
+`npx --yes localtunnel --port 3000` as separate standalone background
+commands (not chained with `sleep`/`cat` in the same call — a wrapping
+shell exiting kills its backgrounded children in this harness). The
+tunnel's first-visit interstitial "password" is the host's public IP,
+gettable via `curl -s https://loca.lt/mytunnelpassword`.
 
 ## How this was built (process, in case you continue the same way)
 
