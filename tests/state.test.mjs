@@ -29,3 +29,22 @@ test('loadSettings ignores corrupt JSON and returns defaults', () => {
   const settings = loadSettings(storage);
   assert.deepEqual(settings, DEFAULT_SETTINGS);
 });
+
+function throwingStorage() {
+  return {
+    getItem: () => { throw new Error('localStorage disabled'); },
+    setItem: () => { throw new Error('localStorage disabled'); },
+  };
+}
+
+test('loadSettings returns defaults when storage.getItem throws', () => {
+  const settings = loadSettings(throwingStorage());
+  assert.deepEqual(settings, DEFAULT_SETTINGS);
+});
+
+test('saveSettings still returns merged settings when storage.setItem throws', () => {
+  const settings = saveSettings(throwingStorage(), { script: 'Привет', speedPxPerSec: 40 });
+  assert.equal(settings.script, 'Привет');
+  assert.equal(settings.speedPxPerSec, 40);
+  assert.equal(settings.fontSizePx, DEFAULT_SETTINGS.fontSizePx);
+});

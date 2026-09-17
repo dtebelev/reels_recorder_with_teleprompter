@@ -8,7 +8,13 @@ export const DEFAULT_SETTINGS = {
 };
 
 export function loadSettings(storage = globalThis.localStorage) {
-  const raw = storage.getItem(STORAGE_KEY);
+  let raw;
+  try {
+    raw = storage.getItem(STORAGE_KEY);
+  } catch {
+    // localStorage disabled/locked-down (e.g. iOS Safari private mode) — degrade gracefully.
+    return { ...DEFAULT_SETTINGS };
+  }
   if (!raw) return { ...DEFAULT_SETTINGS };
   try {
     const parsed = JSON.parse(raw);
@@ -21,6 +27,11 @@ export function loadSettings(storage = globalThis.localStorage) {
 export function saveSettings(storage = globalThis.localStorage, partial) {
   const current = loadSettings(storage);
   const next = { ...current, ...partial };
-  storage.setItem(STORAGE_KEY, JSON.stringify(next));
+  try {
+    storage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Persisting failed (disabled storage, quota exceeded, etc.) — keep the
+    // app working for this session, just without persistence.
+  }
   return next;
 }

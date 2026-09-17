@@ -71,7 +71,7 @@ button.primary {
 .screen--error { display: flex; flex-direction: column; gap: 16px; justify-content: center; align-items: center; text-align: center; }
 
 .teleprompter {
-  position: absolute; top: 0; left: 0; right: 0; height: 20vh;
+  position: absolute; top: 0; left: 0; right: 0; height: 20vh; overflow: hidden;
   display: flex; flex-direction: column; align-items: center;
   background: linear-gradient(to bottom, rgba(0,0,0,0.75), rgba(0,0,0,0.15));
   z-index: 10;

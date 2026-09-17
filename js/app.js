@@ -125,7 +125,7 @@ function renderCameraError(err) {
   app.innerHTML = `
     <div class="screen screen--error">
       <p>Не удалось получить доступ к камере/микрофону.</p>
-      <p class="error-detail">${err instanceof CameraError ? err.cause?.message ?? '' : String(err)}</p>
+      <p class="error-detail">${escapeHtml(err instanceof CameraError ? err.cause?.message ?? '' : String(err))}</p>
       <button id="retry-btn" class="primary">Повторить</button>
     </div>
   `;
@@ -259,6 +259,20 @@ function renderReview() {
   stopStream(cameraStream);
   cameraStream = null;
 
+  if (!recordedBlob || recordedBlob.size === 0) {
+    app.innerHTML = `
+      <div class="screen screen--error">
+        <p>Запись не удалась: данные не были получены.</p>
+        <button id="back-to-rehearsal-btn" class="primary">← Репетиция</button>
+      </div>
+    `;
+    document.getElementById('back-to-rehearsal-btn').addEventListener('click', () => {
+      recordedBlob = null;
+      renderRehearsal();
+    });
+    return;
+  }
+
   const videoUrl = URL.createObjectURL(recordedBlob);
   app.innerHTML = `
     <div class="screen screen--review">
@@ -276,6 +290,17 @@ function renderReview() {
     URL.revokeObjectURL(videoUrl);
     recordedBlob = null;
     renderRehearsal();
+  });
+
+  // Let the browser follow the download link (no preventDefault), then once
+  // the download has had time to start, clean up and return to Setup for a
+  // fresh take, per spec.
+  document.getElementById('keep-btn').addEventListener('click', () => {
+    setTimeout(() => {
+      URL.revokeObjectURL(videoUrl);
+      recordedBlob = null;
+      renderSetup();
+    }, 500);
   });
 }
 
