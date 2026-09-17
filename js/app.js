@@ -5,6 +5,12 @@ import { CameraError, acquireFrontCameraStream, stopStream } from './camera.js';
 import { Teleprompter } from './teleprompter.js';
 import { Recorder } from './recorder.js';
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js');
+  });
+}
+
 const app = document.getElementById('app');
 let settings = loadSettings();
 
