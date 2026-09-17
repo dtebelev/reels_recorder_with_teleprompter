@@ -3,12 +3,18 @@ import { loadSettings, saveSettings } from './state.js';
 import { clampSpeed, SPEED_STEP } from './scroll.js';
 import { CameraError, acquireFrontCameraStream, stopStream } from './camera.js';
 import { Teleprompter } from './teleprompter.js';
+import { Recorder } from './recorder.js';
 
 const app = document.getElementById('app');
 let settings = loadSettings();
 
 let cameraStream = null;
 let teleprompter = null;
+
+let recorder = null;
+let recordingStartTime = null;
+let timerIntervalId = null;
+let recordedBlob = null;
 
 function renderSetup() {
   app.innerHTML = `
@@ -101,7 +107,7 @@ async function renderRehearsal() {
     renderSetup();
   });
   document.getElementById('record-btn').addEventListener('click', () => {
-    // Wired to the Recording screen in Task 10.
+    renderCountdown();
   });
 }
 
@@ -114,6 +120,75 @@ function renderCameraError(err) {
     </div>
   `;
   document.getElementById('retry-btn').addEventListener('click', renderRehearsal);
+}
+
+async function renderCountdown() {
+  app.innerHTML = `<div class="screen screen--countdown"><span id="count">3</span></div>`;
+  const countEl = document.getElementById('count');
+  for (const n of [3, 2, 1]) {
+    countEl.textContent = String(n);
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  renderRecording();
+}
+
+function renderRecording() {
+  app.innerHTML = `
+    <div class="screen screen--camera">
+      <video id="preview" autoplay playsinline muted></video>
+      <div id="teleprompter-mount"></div>
+      <div class="timer" id="timer">00:00</div>
+      <div class="controls">
+        <button id="slower">Медленнее</button>
+        <button id="pause-btn" class="record-btn record-btn--recording"></button>
+        <button id="faster">Быстрее</button>
+      </div>
+      <button id="stop-btn" class="stop-btn">Стоп</button>
+    </div>
+  `;
+
+  document.getElementById('preview').srcObject = cameraStream;
+  teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
+  teleprompter.start();
+
+  recorder = new Recorder(cameraStream);
+  recorder.start();
+  recordingStartTime = performance.now();
+  timerIntervalId = setInterval(updateTimer, 250);
+
+  let paused = false;
+  const pauseBtn = document.getElementById('pause-btn');
+  if (!recorder.canPause) pauseBtn.disabled = true;
+  pauseBtn.addEventListener('click', () => {
+    if (!recorder.canPause) return;
+    paused = !paused;
+    if (paused) { recorder.pause(); teleprompter.stop(); clearInterval(timerIntervalId); }
+    else { recorder.resume(); teleprompter.start(); timerIntervalId = setInterval(updateTimer, 250); }
+    pauseBtn.classList.toggle('record-btn--paused', paused);
+  });
+
+  document.getElementById('slower').addEventListener('click', () => {
+    settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec - SPEED_STEP) });
+    teleprompter.setSpeed(settings.speedPxPerSec);
+  });
+  document.getElementById('faster').addEventListener('click', () => {
+    settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec + SPEED_STEP) });
+    teleprompter.setSpeed(settings.speedPxPerSec);
+  });
+
+  document.getElementById('stop-btn').addEventListener('click', async () => {
+    clearInterval(timerIntervalId);
+    teleprompter.stop();
+    recordedBlob = await recorder.stop();
+    renderReview();
+  });
+}
+
+function updateTimer() {
+  const elapsedSec = Math.floor((performance.now() - recordingStartTime) / 1000);
+  const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+  const ss = String(elapsedSec % 60).padStart(2, '0');
+  document.getElementById('timer').textContent = `${mm}:${ss}`;
 }
 
 function escapeHtml(str) {
