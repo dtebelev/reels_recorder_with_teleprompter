@@ -246,6 +246,37 @@ function updateTimer() {
   document.getElementById('timer').textContent = `${mm}:${ss}`;
 }
 
+function renderReview() {
+  // Review is a dead end for the camera: no further recording happens from
+  // here, and Retake re-acquires a fresh stream via renderRehearsal(). Stop
+  // the old stream now so the camera light doesn't stay on unnecessarily.
+  stopStream(cameraStream);
+  cameraStream = null;
+
+  const videoUrl = URL.createObjectURL(recordedBlob);
+  app.innerHTML = `
+    <div class="screen screen--review">
+      <video id="review-video" src="${videoUrl}" controls playsinline></video>
+      <div class="review-actions">
+        <button id="retake-btn">Переснять</button>
+        <a id="keep-btn" class="primary" download="reel-${Date.now()}.${extensionFor(recordedBlob.type)}">Оставить</a>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('keep-btn').href = videoUrl;
+
+  document.getElementById('retake-btn').addEventListener('click', () => {
+    URL.revokeObjectURL(videoUrl);
+    recordedBlob = null;
+    renderRehearsal();
+  });
+}
+
+function extensionFor(mimeType) {
+  return mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+}
+
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
