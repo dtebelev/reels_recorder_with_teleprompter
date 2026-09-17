@@ -1,0 +1,14 @@
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #fff;
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  overscroll-behavior: none;
+}
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
