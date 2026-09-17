@@ -1,9 +1,14 @@
 // js/app.js
 import { loadSettings, saveSettings } from './state.js';
 import { clampSpeed, SPEED_STEP } from './scroll.js';
+import { CameraError, acquireFrontCameraStream, stopStream } from './camera.js';
+import { Teleprompter } from './teleprompter.js';
 
 const app = document.getElementById('app');
 let settings = loadSettings();
+
+let cameraStream = null;
+let teleprompter = null;
 
 function renderSetup() {
   app.innerHTML = `
@@ -51,8 +56,64 @@ function renderSetup() {
   });
 
   document.getElementById('rehearse-btn').addEventListener('click', () => {
-    // Wired to the Rehearsal screen in Task 9.
+    renderRehearsal();
   });
+}
+
+async function renderRehearsal() {
+  app.innerHTML = `
+    <div class="screen screen--camera">
+      <video id="preview" autoplay playsinline muted></video>
+      <div id="teleprompter-mount"></div>
+      <div class="controls">
+        <button id="slower">Медленнее</button>
+        <button id="record-btn" class="record-btn"></button>
+        <button id="faster">Быстрее</button>
+      </div>
+      <button id="back-btn" class="link-btn">← Настройки</button>
+    </div>
+  `;
+
+  try {
+    cameraStream = await acquireFrontCameraStream();
+  } catch (err) {
+    renderCameraError(err);
+    return;
+  }
+
+  const video = document.getElementById('preview');
+  video.srcObject = cameraStream;
+
+  teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
+  teleprompter.start();
+
+  document.getElementById('slower').addEventListener('click', () => {
+    settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec - SPEED_STEP) });
+    teleprompter.setSpeed(settings.speedPxPerSec);
+  });
+  document.getElementById('faster').addEventListener('click', () => {
+    settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec + SPEED_STEP) });
+    teleprompter.setSpeed(settings.speedPxPerSec);
+  });
+  document.getElementById('back-btn').addEventListener('click', () => {
+    teleprompter.stop();
+    stopStream(cameraStream);
+    renderSetup();
+  });
+  document.getElementById('record-btn').addEventListener('click', () => {
+    // Wired to the Recording screen in Task 10.
+  });
+}
+
+function renderCameraError(err) {
+  app.innerHTML = `
+    <div class="screen screen--error">
+      <p>Не удалось получить доступ к камере/микрофону.</p>
+      <p class="error-detail">${err instanceof CameraError ? err.cause?.message ?? '' : String(err)}</p>
+      <button id="retry-btn" class="primary">Повторить</button>
+    </div>
+  `;
+  document.getElementById('retry-btn').addEventListener('click', renderRehearsal);
 }
 
 function escapeHtml(str) {
