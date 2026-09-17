@@ -12,7 +12,8 @@ let cameraStream = null;
 let teleprompter = null;
 
 let recorder = null;
-let recordingStartTime = null;
+let recordingStartTime = null; // start of the current (unpaused) segment, or null while paused
+let elapsedBeforePauseMs = 0; // recorded duration accumulated over previous segments
 let timerIntervalId = null;
 let recordedBlob = null;
 
@@ -107,6 +108,9 @@ async function renderRehearsal() {
     renderSetup();
   });
   document.getElementById('record-btn').addEventListener('click', () => {
+    // Stop the rehearsal RAF loop before the countdown replaces the DOM;
+    // renderRecording() builds a fresh Teleprompter for the take.
+    teleprompter.stop();
     renderCountdown();
   });
 }
@@ -153,17 +157,32 @@ function renderRecording() {
 
   recorder = new Recorder(cameraStream);
   recorder.start();
+  elapsedBeforePauseMs = 0;
   recordingStartTime = performance.now();
   timerIntervalId = setInterval(updateTimer, 250);
 
   let paused = false;
+  let stopping = false;
   const pauseBtn = document.getElementById('pause-btn');
   if (!recorder.canPause) pauseBtn.disabled = true;
   pauseBtn.addEventListener('click', () => {
-    if (!recorder.canPause) return;
+    if (!recorder.canPause || stopping) return;
     paused = !paused;
-    if (paused) { recorder.pause(); teleprompter.stop(); clearInterval(timerIntervalId); }
-    else { recorder.resume(); teleprompter.start(); timerIntervalId = setInterval(updateTimer, 250); }
+    if (paused) {
+      recorder.pause();
+      teleprompter.stop();
+      clearInterval(timerIntervalId);
+      // Fold the finished segment into the accumulator, then repaint once so
+      // the frozen display shows the exact paused-at duration.
+      elapsedBeforePauseMs = recordedElapsedMs();
+      recordingStartTime = null;
+      updateTimer();
+    } else {
+      recorder.resume();
+      teleprompter.start();
+      recordingStartTime = performance.now();
+      timerIntervalId = setInterval(updateTimer, 250);
+    }
     pauseBtn.classList.toggle('record-btn--paused', paused);
   });
 
@@ -176,16 +195,29 @@ function renderRecording() {
     teleprompter.setSpeed(settings.speedPxPerSec);
   });
 
-  document.getElementById('stop-btn').addEventListener('click', async () => {
+  const stopBtn = document.getElementById('stop-btn');
+  stopBtn.addEventListener('click', async () => {
+    if (stopping) return; // a second tap would stop an already-inactive recorder
+    stopping = true;
+    stopBtn.disabled = true;
+    pauseBtn.disabled = true;
     clearInterval(timerIntervalId);
     teleprompter.stop();
+    elapsedBeforePauseMs = recordedElapsedMs();
+    recordingStartTime = null;
     recordedBlob = await recorder.stop();
     renderReview();
   });
 }
 
+/** Recorded duration in ms: finished segments plus the segment in progress. */
+function recordedElapsedMs() {
+  if (recordingStartTime === null) return elapsedBeforePauseMs;
+  return elapsedBeforePauseMs + (performance.now() - recordingStartTime);
+}
+
 function updateTimer() {
-  const elapsedSec = Math.floor((performance.now() - recordingStartTime) / 1000);
+  const elapsedSec = Math.floor(recordedElapsedMs() / 1000);
   const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
   const ss = String(elapsedSec % 60).padStart(2, '0');
   document.getElementById('timer').textContent = `${mm}:${ss}`;
