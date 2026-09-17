@@ -1,7 +1,7 @@
 // js/app.js
 import { loadSettings, saveSettings } from './state.js';
 import { clampSpeed, SPEED_STEP } from './scroll.js';
-import { CameraError, acquireFrontCameraStream, stopStream } from './camera.js';
+import { CameraError, acquireFrontCameraStream, stopStream, mirrorToCanvas } from './camera.js';
 import { Teleprompter } from './teleprompter.js';
 import { Recorder } from './recorder.js';
 
@@ -16,6 +16,14 @@ let settings = loadSettings();
 
 let cameraStream = null;
 let teleprompter = null;
+let mirrorPreview = null; // canvas-based mirrored preview; its .stream is what actually gets recorded
+
+function stopMirrorPreview() {
+  if (mirrorPreview) {
+    mirrorPreview.stop();
+    mirrorPreview = null;
+  }
+}
 
 let recorder = null;
 let recordingStartTime = null; // start of the current (unpaused) segment, or null while paused
@@ -78,7 +86,7 @@ function renderSetup() {
 async function renderRehearsal() {
   app.innerHTML = `
     <div class="screen screen--camera">
-      <video id="preview" autoplay playsinline muted></video>
+      <canvas id="preview"></canvas>
       <div id="teleprompter-mount"></div>
       <div class="controls">
         <button id="slower">Медленнее</button>
@@ -96,8 +104,7 @@ async function renderRehearsal() {
     return;
   }
 
-  const video = document.getElementById('preview');
-  video.srcObject = cameraStream;
+  mirrorPreview = mirrorToCanvas(cameraStream, document.getElementById('preview'));
 
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
   teleprompter.start(TELEPROMPTER_START_DELAY_MS);
@@ -112,13 +119,16 @@ async function renderRehearsal() {
   });
   document.getElementById('back-btn').addEventListener('click', () => {
     teleprompter.stop();
+    stopMirrorPreview();
     stopStream(cameraStream);
     renderSetup();
   });
   document.getElementById('record-btn').addEventListener('click', () => {
-    // Stop the rehearsal RAF loop before the countdown replaces the DOM;
-    // renderRecording() builds a fresh Teleprompter for the take.
+    // Stop the rehearsal RAF loops before the countdown replaces the DOM;
+    // renderRecording() builds a fresh Teleprompter and mirror preview for
+    // the take (cameraStream itself stays alive and is reused).
     teleprompter.stop();
+    stopMirrorPreview();
     renderCountdown();
   });
 }
@@ -158,30 +168,34 @@ async function renderCountdown() {
 function renderRecording() {
   app.innerHTML = `
     <div class="screen screen--camera">
-      <video id="preview" autoplay playsinline muted></video>
+      <canvas id="preview"></canvas>
       <div id="teleprompter-mount"></div>
-      <div class="timer" id="timer">00:00</div>
-      <div class="controls">
-        <button id="slower">Медленнее</button>
-        <button id="pause-btn" class="record-btn record-btn--recording"></button>
-        <button id="faster">Быстрее</button>
+      <div class="status-topright">
+        <div class="timer" id="timer">00:00</div>
+        <div class="paused-label" id="paused-label" hidden>ПАУЗА</div>
       </div>
-      <button id="stop-btn" class="stop-btn">Стоп</button>
+      <div class="controls controls--recording">
+        <button id="pause-btn" class="pause-btn" aria-label="Пауза"></button>
+        <button id="stop-btn" class="stop-circle-btn" aria-label="Стоп"><span class="stop-circle-btn__icon"></span></button>
+      </div>
     </div>
   `;
 
-  document.getElementById('preview').srcObject = cameraStream;
+  mirrorPreview = mirrorToCanvas(cameraStream, document.getElementById('preview'));
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
   teleprompter.start(TELEPROMPTER_START_DELAY_MS);
 
   try {
-    recorder = new Recorder(cameraStream);
+    // Record from the exact same mirrored/cropped stream shown on screen,
+    // not the raw camera track, so the saved file matches what was framed.
+    recorder = new Recorder(mirrorPreview.stream);
     recorder.start();
   } catch (err) {
     // No supported MediaRecorder format (or the recorder refused to start):
     // tear the half-wired screen down instead of leaving a live camera and a
     // scrolling teleprompter with non-functional controls.
     teleprompter.stop();
+    stopMirrorPreview();
     stopStream(cameraStream);
     cameraStream = null;
     recorder = null;
@@ -196,6 +210,8 @@ function renderRecording() {
   let stopping = false;
   const pauseBtn = document.getElementById('pause-btn');
   if (!recorder.canPause) pauseBtn.disabled = true;
+  const pausedLabel = document.getElementById('paused-label');
+  const timerEl = document.getElementById('timer');
   pauseBtn.addEventListener('click', () => {
     if (!recorder.canPause || stopping) return;
     paused = !paused;
@@ -214,16 +230,9 @@ function renderRecording() {
       recordingStartTime = performance.now();
       timerIntervalId = setInterval(updateTimer, 250);
     }
-    pauseBtn.classList.toggle('record-btn--paused', paused);
-  });
-
-  document.getElementById('slower').addEventListener('click', () => {
-    settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec - SPEED_STEP) });
-    teleprompter.setSpeed(settings.speedPxPerSec);
-  });
-  document.getElementById('faster').addEventListener('click', () => {
-    settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec + SPEED_STEP) });
-    teleprompter.setSpeed(settings.speedPxPerSec);
+    pauseBtn.classList.toggle('pause-btn--active', paused);
+    pausedLabel.hidden = !paused;
+    timerEl.classList.toggle('timer--paused', paused);
   });
 
   const stopBtn = document.getElementById('stop-btn');
@@ -234,6 +243,7 @@ function renderRecording() {
     pauseBtn.disabled = true;
     clearInterval(timerIntervalId);
     teleprompter.stop();
+    stopMirrorPreview();
     elapsedBeforePauseMs = recordedElapsedMs();
     recordingStartTime = null;
     recordedBlob = await recorder.stop();
@@ -275,18 +285,37 @@ function renderReview() {
     return;
   }
 
+  const filename = `reel-${Date.now()}.${extensionFor(recordedBlob.type)}`;
   const videoUrl = URL.createObjectURL(recordedBlob);
+  const shareFile = new File([recordedBlob], filename, { type: recordedBlob.type });
+  // Plain <a download> on a blob URL saves into Files/Drive on iOS, not
+  // Photos. navigator.share's sheet offers "Save Video" straight to
+  // Photos, so prefer it wherever the browser actually supports sharing
+  // a file (checked via canShare, not just the presence of share()).
+  const canUseShare = typeof navigator.canShare === 'function' && navigator.canShare({ files: [shareFile] });
+
   app.innerHTML = `
     <div class="screen screen--review">
-      <video id="review-video" src="${videoUrl}" controls playsinline></video>
+      <video id="review-video" src="${videoUrl}" controls playsinline preload="auto"></video>
       <div class="review-actions">
         <button id="retake-btn">Переснять</button>
-        <a id="keep-btn" class="primary" download="reel-${Date.now()}.${extensionFor(recordedBlob.type)}">Оставить</a>
+        ${canUseShare
+          ? '<button id="keep-btn" class="primary">Оставить</button>'
+          : `<a id="keep-btn" class="primary" download="${filename}">Оставить</a>`}
       </div>
     </div>
   `;
 
-  document.getElementById('keep-btn').href = videoUrl;
+  // Some mobile browsers show a black frame until the video is nudged once
+  // metadata is known — forcing a tiny seek makes the first real frame paint.
+  const reviewVideo = document.getElementById('review-video');
+  reviewVideo.addEventListener('loadedmetadata', () => {
+    try { reviewVideo.currentTime = 0.01; } catch { /* ignore */ }
+  }, { once: true });
+
+  if (!canUseShare) {
+    document.getElementById('keep-btn').href = videoUrl;
+  }
 
   document.getElementById('retake-btn').addEventListener('click', () => {
     URL.revokeObjectURL(videoUrl);
@@ -294,15 +323,33 @@ function renderReview() {
     renderRehearsal();
   });
 
-  // Let the browser follow the download link (no preventDefault), then once
-  // the download has had time to start, clean up and return to Setup for a
-  // fresh take, per spec.
-  document.getElementById('keep-btn').addEventListener('click', () => {
-    setTimeout(() => {
-      URL.revokeObjectURL(videoUrl);
-      recordedBlob = null;
-      renderSetup();
-    }, 500);
+  const returnToSetup = () => {
+    URL.revokeObjectURL(videoUrl);
+    recordedBlob = null;
+    renderSetup();
+  };
+
+  document.getElementById('keep-btn').addEventListener('click', (e) => {
+    if (!canUseShare) {
+      // Let the browser follow the download link (no preventDefault), then
+      // once the download has had time to start, clean up and return to
+      // Setup for a fresh take, per spec.
+      setTimeout(returnToSetup, 500);
+      return;
+    }
+    e.preventDefault();
+    navigator.share({ files: [shareFile] }).then(returnToSetup).catch((err) => {
+      // AbortError just means the user dismissed the share sheet — let them
+      // try again rather than treating it as a failure.
+      if (err && err.name === 'AbortError') return;
+      // Sharing genuinely failed for some other reason: fall back to a
+      // direct download so the take isn't stranded with no way to save it.
+      const a = document.createElement('a');
+      a.href = videoUrl;
+      a.download = filename;
+      a.click();
+      setTimeout(returnToSetup, 500);
+    });
   });
 }
 
