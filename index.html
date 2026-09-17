@@ -13,6 +13,25 @@
   <main id="app">
     <!-- Screens are rendered here by js/app.js -->
   </main>
+  <script>
+    // Temporary diagnostic: surface otherwise-invisible errors (e.g. a
+    // module failing to load/execute) directly on screen, since a remote
+    // tester usually can't see the browser console. Safe to remove once
+    // on-device QA is done.
+    function showFatalError(label, detail) {
+      var el = document.getElementById('app');
+      if (el) {
+        el.innerHTML = '<div style="padding:20px;color:#fff;background:#b00020;height:100%;overflow:auto;font-family:monospace;white-space:pre-wrap;">' +
+          '<b>' + label + '</b>\n\n' + (detail || '') + '</div>';
+      }
+    }
+    window.addEventListener('error', function (e) {
+      showFatalError('JS error', (e.message || '') + '\n' + (e.filename ? e.filename + ':' + e.lineno + ':' + e.colno : ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      showFatalError('Unhandled promise rejection', String(e.reason && e.reason.stack || e.reason));
+    });
+  </script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

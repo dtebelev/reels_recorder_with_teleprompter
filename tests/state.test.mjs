@@ -48,3 +48,21 @@ test('saveSettings still returns merged settings when storage.setItem throws', (
   assert.equal(settings.speedPxPerSec, 40);
   assert.equal(settings.fontSizePx, DEFAULT_SETTINGS.fontSizePx);
 });
+
+test('loadSettings/saveSettings degrade gracefully when accessing globalThis.localStorage itself throws', () => {
+  // Simulates restricted embedded browsers where merely touching
+  // `localStorage` (not just calling getItem/setItem) throws synchronously.
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('localStorage access blocked'); },
+  });
+  try {
+    assert.deepEqual(loadSettings(), DEFAULT_SETTINGS);
+    const settings = saveSettings(undefined, { script: 'test' });
+    assert.equal(settings.script, 'test');
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete globalThis.localStorage;
+  }
+});

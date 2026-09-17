@@ -23,6 +23,8 @@ let elapsedBeforePauseMs = 0; // recorded duration accumulated over previous seg
 let timerIntervalId = null;
 let recordedBlob = null;
 
+const TELEPROMPTER_START_DELAY_MS = 6000; // time to get ready before the script starts scrolling
+
 function renderSetup() {
   app.innerHTML = `
     <div class="screen screen--setup">
@@ -98,7 +100,7 @@ async function renderRehearsal() {
   video.srcObject = cameraStream;
 
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
-  teleprompter.start();
+  teleprompter.start(TELEPROMPTER_START_DELAY_MS);
 
   document.getElementById('slower').addEventListener('click', () => {
     settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec - SPEED_STEP) });
@@ -170,7 +172,7 @@ function renderRecording() {
 
   document.getElementById('preview').srcObject = cameraStream;
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
-  teleprompter.start();
+  teleprompter.start(TELEPROMPTER_START_DELAY_MS);
 
   try {
     recorder = new Recorder(cameraStream);
