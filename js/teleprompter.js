@@ -28,7 +28,7 @@ export class Teleprompter {
   }
 
   setSpeed(speedPxPerSec) {
-    this.#baseOffsetPx = this.#currentOffset();
+    this.#snapshotOffset();
     this.#startTime = performance.now();
     this.#speedPxPerSec = speedPxPerSec;
   }
@@ -44,7 +44,15 @@ export class Teleprompter {
     return this.#baseOffsetPx + computeScrollOffsetPx(elapsed, this.#speedPxPerSec);
   }
 
+  /** Freezes the current scroll position into #baseOffsetPx so a later
+   * resume (via start() or setSpeed()) continues from here instead of
+   * jumping back to wherever #baseOffsetPx last was. */
+  #snapshotOffset() {
+    this.#baseOffsetPx = this.#currentOffset();
+  }
+
   start() {
+    if (this.#rafId !== null) return; // already running; avoid a second RAF loop
     this.#startTime = performance.now();
     const tick = () => {
       const offset = this.#currentOffset();
@@ -57,6 +65,8 @@ export class Teleprompter {
   stop() {
     if (this.#rafId !== null) cancelAnimationFrame(this.#rafId);
     this.#rafId = null;
+    this.#snapshotOffset();
+    this.#startTime = null;
   }
 
   reset() {
