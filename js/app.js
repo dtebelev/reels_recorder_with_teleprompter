@@ -126,6 +126,17 @@ function renderCameraError(err) {
   document.getElementById('retry-btn').addEventListener('click', renderRehearsal);
 }
 
+function renderRecorderError(err) {
+  app.innerHTML = `
+    <div class="screen screen--error">
+      <p>Запись видео не поддерживается в этом браузере.</p>
+      <p class="error-detail">${escapeHtml(err?.message ?? String(err))}</p>
+      <button id="back-to-setup-btn" class="primary">← Настройки</button>
+    </div>
+  `;
+  document.getElementById('back-to-setup-btn').addEventListener('click', renderSetup);
+}
+
 async function renderCountdown() {
   app.innerHTML = `<div class="screen screen--countdown"><span id="count">3</span></div>`;
   const countEl = document.getElementById('count');
@@ -155,8 +166,20 @@ function renderRecording() {
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
   teleprompter.start();
 
-  recorder = new Recorder(cameraStream);
-  recorder.start();
+  try {
+    recorder = new Recorder(cameraStream);
+    recorder.start();
+  } catch (err) {
+    // No supported MediaRecorder format (or the recorder refused to start):
+    // tear the half-wired screen down instead of leaving a live camera and a
+    // scrolling teleprompter with non-functional controls.
+    teleprompter.stop();
+    stopStream(cameraStream);
+    cameraStream = null;
+    recorder = null;
+    renderRecorderError(err);
+    return;
+  }
   elapsedBeforePauseMs = 0;
   recordingStartTime = performance.now();
   timerIntervalId = setInterval(updateTimer, 250);

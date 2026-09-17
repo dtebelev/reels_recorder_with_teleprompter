@@ -57,6 +57,9 @@ button.primary {
   z-index: 20; background: rgba(0,0,0,0.5); padding: 4px 12px; border-radius: 8px;
   font-variant-numeric: tabular-nums;
 }
+.record-btn:disabled, .stop-btn:disabled, .controls button:disabled {
+  opacity: 0.4; filter: grayscale(1); cursor: default;
+}
 .record-btn--recording { background: #ff5a36; }
 .record-btn--paused { background: #666; }
 .stop-btn {
