@@ -150,7 +150,18 @@ button.primary {
 }
 
 .screen--review { position: relative; padding: 0; height: 100%; }
-#review-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+#review-video {
+  /* Inset from the very top/bottom edges rather than filling the screen:
+     the native <video controls> chrome (AirPlay/cast, fullscreen toggle,
+     the "..." menu) draws inside this box's own corners, and without
+     margin it collides with the diagnostics button above and the
+     Keep/Retake bar below. */
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  left: 0; right: 0;
+  object-fit: contain; background: #000;
+}
 .review-actions {
   position: absolute; left: 0; right: 0; bottom: 0;
   display: flex; gap: 14px; justify-content: center;
