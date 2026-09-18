@@ -61,6 +61,10 @@ let elapsedBeforePauseMs = 0; // recorded duration accumulated over previous seg
 let timerIntervalId = null;
 let recordedBlob = null;
 
+const FONT_SIZE_STEP_PX = 1;
+const MIN_FONT_SIZE_PX = 16;
+const MAX_FONT_SIZE_PX = 72;
+
 const TELEPROMPTER_START_DELAY_MS = 6000; // time to get ready before the script starts scrolling
 const RECORDER_STOP_TIMEOUT_MS = 8000; // safety net if MediaRecorder.stop() never resolves
 
@@ -101,11 +105,13 @@ function renderSetup() {
     document.getElementById('speed-value').textContent = settings.speedPxPerSec;
   });
   document.getElementById('font-down').addEventListener('click', () => {
-    settings = saveSettings(undefined, { fontSizePx: Math.max(16, settings.fontSizePx - 4) });
+    const next = Math.max(MIN_FONT_SIZE_PX, settings.fontSizePx - FONT_SIZE_STEP_PX);
+    settings = saveSettings(undefined, { fontSizePx: next });
     document.getElementById('font-value').textContent = settings.fontSizePx;
   });
   document.getElementById('font-up').addEventListener('click', () => {
-    settings = saveSettings(undefined, { fontSizePx: Math.min(72, settings.fontSizePx + 4) });
+    const next = Math.min(MAX_FONT_SIZE_PX, settings.fontSizePx + FONT_SIZE_STEP_PX);
+    settings = saveSettings(undefined, { fontSizePx: next });
     document.getElementById('font-value').textContent = settings.fontSizePx;
   });
 
