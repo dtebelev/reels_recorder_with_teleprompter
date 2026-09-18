@@ -179,6 +179,18 @@ canvas-based recording approach was reverted**:
 
 **Not yet re-verified on device**: confirm recording no longer freezes across several consecutive takes, and confirm the FOV fix (no forced resolution) actually narrowed the gap with the native Camera app now that the simpler pipeline is back in place.
 
+**This did NOT fix it either** — see the next round. Keep reading before assuming a raw-track recording is inherently safe.
+
+## Fifth round: the freeze survived the full revert — likely cause is screen Auto-Lock, not our code (2026-09-17)
+
+After reverting to the simplest possible pipeline (plain `<video srcObject>` + `new Recorder(cameraStream)`, zero custom video processing), the user re-tested and got the **exact same symptom**: video freezes partway through, audio plays to the end. Since this survived removing every piece of custom video-handling code this project ever added, the cause can't be anything in our canvas/mirroring code — it has to be something more fundamental.
+
+**Leading theory:** the phone's screen dims/locks mid-recording (e.g. because the person isn't touching the screen while quietly reading the teleprompter), and iOS suspends camera capture when the screen locks/dims for privacy reasons — audio recording can continue in the background in some configurations, video capture cannot. That exactly matches "video freezes, audio plays to completion," and would reproduce identically regardless of which recording pipeline the app uses, which is consistent with it surviving the Round 4 revert.
+
+**Fix applied:** the standard [Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API) (`navigator.wakeLock.request('screen')`), supported in iOS Safari since 16.4. `acquireWakeLock()`/`releaseWakeLock()` in `js/app.js` are now called alongside every existing camera-stream acquire/`stopStream()` pair (Rehearsal's camera acquisition, the back-button, both error paths, and Review). Also re-acquires automatically on `visibilitychange` back to visible, since browsers silently drop the wake lock whenever the tab is hidden (e.g. briefly during the native share sheet) and never restore it on their own.
+
+**Not yet verified on device — this is the current best theory, not a confirmed fix.** If it doesn't resolve the issue: ask the user to check Settings > Display & Brightness > Auto-Lock on their iPhone and temporarily set it to "Never" during a test recording, as an independent way to confirm or rule out this theory without relying on the Wake Lock API at all. If Auto-Lock=Never also still freezes, the screen-lock theory is wrong and this needs actual remote debugging (Safari Web Inspector via a Mac, as noted in Round 4) rather than further guessing — four rounds of blind fixes is already a lot; don't attempt a sixth without real console/device access if this one doesn't land.
+
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 
 These were explicitly scoped out as trade-offs or lower priority. Revisit if they cause real problems during device QA:

@@ -16,6 +16,43 @@ let settings = loadSettings();
 
 let cameraStream = null;
 let teleprompter = null;
+let wakeLock = null;
+
+/** Prevents the screen from dimming/locking. Without this, iOS suspends
+ * the camera (video freezes, audio keeps recording — the exact bug this
+ * fixes) if the person doesn't touch the screen for a while, e.g. while
+ * quietly reading the teleprompter. Requires a secure context and user
+ * activation to acquire, both already true by the time this is called. */
+async function acquireWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => {
+        wakeLock = null;
+      });
+    }
+  } catch {
+    // Not available/denied on this browser — recording still proceeds,
+    // just without the screen-stays-on guarantee.
+    wakeLock = null;
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+}
+
+// The browser auto-releases the wake lock whenever the tab is hidden (e.g.
+// briefly during the native share sheet) and never re-acquires it on its
+// own — do that ourselves so a locked screen doesn't creep back in mid-flow.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && cameraStream && wakeLock === null) {
+    acquireWakeLock();
+  }
+});
 
 let recorder = null;
 let recordingStartTime = null; // start of the current (unpaused) segment, or null while paused
@@ -96,6 +133,7 @@ async function renderRehearsal() {
     renderCameraError(err);
     return;
   }
+  acquireWakeLock();
 
   document.getElementById('preview').srcObject = cameraStream;
 
@@ -112,6 +150,7 @@ async function renderRehearsal() {
   });
   document.getElementById('back-btn').addEventListener('click', () => {
     teleprompter.stop();
+    releaseWakeLock();
     stopStream(cameraStream);
     renderSetup();
   });
@@ -184,6 +223,7 @@ function renderRecording() {
     // tear the half-wired screen down instead of leaving a live camera and a
     // scrolling teleprompter with non-functional controls.
     teleprompter.stop();
+    releaseWakeLock();
     stopStream(cameraStream);
     cameraStream = null;
     recorder = null;
@@ -237,6 +277,7 @@ function renderRecording() {
     if (!recordedBlob) {
       // recorder.stop() never resolved (or genuinely failed) — don't leave
       // the person stuck on a dead screen forever.
+      releaseWakeLock();
       stopStream(cameraStream);
       cameraStream = null;
       renderRecorderError(new Error('Не удалось завершить запись — попробуйте ещё раз.'));
@@ -273,8 +314,10 @@ function updateTimer() {
 
 function renderReview() {
   // Review is a dead end for the camera: no further recording happens from
-  // here, and Retake re-acquires a fresh stream via renderRehearsal(). Stop
-  // the old stream now so the camera light doesn't stay on unnecessarily.
+  // here, and Retake re-acquires a fresh stream (and wake lock) via
+  // renderRehearsal(). Stop the old stream now so the camera light doesn't
+  // stay on unnecessarily.
+  releaseWakeLock();
   stopStream(cameraStream);
   cameraStream = null;
 
