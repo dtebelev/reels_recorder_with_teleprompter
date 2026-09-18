@@ -181,21 +181,33 @@ button.primary {
 
 .screen--review { position: relative; padding: 0; height: 100%; }
 #review-video {
-  /* Inset from the very top/bottom edges rather than filling the screen:
-     the native <video controls> chrome (AirPlay/cast, fullscreen toggle,
-     the "..." menu) draws inside this box's own corners, and without
-     margin it collides with the diagnostics button above and the
-     Keep/Retake bar below. Top and bottom insets are kept EQUAL on
-     purpose: the native play/skip-10s buttons center themselves within
-     this element's own box, not the visible screen, so an asymmetric
-     inset (more room reserved at the bottom for Keep/Retake than at the
-     top) visibly pushes them off-center. */
-  position: absolute;
-  top: calc(112px + env(safe-area-inset-top, 0px));
-  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
-  left: 0; right: 0;
+  /* No more native <video controls>: its play/skip-10s buttons center
+     within the element's own box rather than the visible screen, and two
+     rounds of adjusting insets to compensate never actually centered them
+     on screen. Custom controls below replace it, positioned directly
+     against the viewport instead, so the video itself can go back to
+     filling the screen. */
+  position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: contain; background: #000;
 }
+.play-toggle {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 25; width: 72px; height: 72px; border-radius: 50%;
+  background: rgba(0,0,0,0.45); border: 1.5px solid rgba(255,255,255,0.5);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  transition: opacity 0.15s ease, transform 0.12s ease;
+}
+.play-toggle svg { width: 30px; height: 30px; margin-left: 2px; }
+.play-toggle--playing { opacity: 0; }
+.play-toggle--playing svg { margin-left: 0; }
+.play-toggle:active { transform: translate(-50%, -50%) scale(0.92); }
+.progress-bar {
+  position: absolute; left: 0; right: 0;
+  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  height: 3px; z-index: 25; background: rgba(255,255,255,0.25);
+}
+.progress-bar__fill { height: 100%; width: 0%; background: #ff5a36; }
 .review-actions {
   position: absolute; left: 0; right: 0; bottom: 0;
   display: flex; gap: 14px; justify-content: center;

@@ -364,6 +364,40 @@ function repairBlobPlayback(video) {
   }, { once: true });
 }
 
+/** A minimal custom play/pause + progress bar for the Review screen.
+ * Replaces the native <video controls> chrome entirely: its built-in
+ * play/skip-10s buttons center within the element's own box rather than
+ * the visible screen, and no combination of insets tried here got them to
+ * visually center — this sidesteps that by not depending on native
+ * positioning at all. */
+function setupCustomVideoControls(video) {
+  const toggleBtn = document.getElementById('play-toggle');
+  const icon = toggleBtn.querySelector('svg path');
+  const PLAY_ICON = 'M8 5v14l11-7z';
+  const PAUSE_ICON = 'M6 5h4v14H6zM14 5h4v14h-4z';
+
+  const syncIcon = () => {
+    icon.setAttribute('d', video.paused ? PLAY_ICON : PAUSE_ICON);
+    toggleBtn.classList.toggle('play-toggle--playing', !video.paused);
+  };
+  const toggle = () => {
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+  };
+
+  toggleBtn.addEventListener('click', toggle);
+  video.addEventListener('click', toggle);
+  video.addEventListener('play', syncIcon);
+  video.addEventListener('pause', syncIcon);
+  syncIcon();
+
+  const fill = document.getElementById('progress-fill');
+  video.addEventListener('timeupdate', () => {
+    if (!video.duration || !isFinite(video.duration)) return;
+    fill.style.width = `${(video.currentTime / video.duration) * 100}%`;
+  });
+}
+
 /** Rejects if `promise` hasn't settled within `ms`, so a hung MediaRecorder
  * can't strand the user on the Recording screen forever. */
 function withTimeout(promise, ms) {
@@ -423,9 +457,12 @@ function renderReview() {
 
   app.innerHTML = `
     <div class="screen screen--review">
-      <video id="review-video" src="${videoUrl}" controls playsinline preload="auto"
-             disablePictureInPicture disableRemotePlayback x-webkit-airplay="deny"
-             controlsList="nofullscreen noremoteplayback noplaybackrate"></video>
+      <video id="review-video" src="${videoUrl}" playsinline preload="auto"
+             disablePictureInPicture disableRemotePlayback x-webkit-airplay="deny"></video>
+      <button id="play-toggle" class="play-toggle" aria-label="Воспроизвести">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>
+      </button>
+      <div class="progress-bar"><div class="progress-bar__fill" id="progress-fill"></div></div>
       <div class="review-actions">
         <button id="retake-btn" class="review-btn review-btn--secondary">
           <svg class="review-btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
@@ -448,6 +485,7 @@ function renderReview() {
 
   const reviewVideo = document.getElementById('review-video');
   repairBlobPlayback(reviewVideo);
+  setupCustomVideoControls(reviewVideo);
 
   const diagPanel = document.getElementById('diag-panel');
   document.getElementById('diag-btn').addEventListener('click', () => {
