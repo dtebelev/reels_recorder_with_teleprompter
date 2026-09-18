@@ -43,10 +43,14 @@ export function mirrorToCanvas(sourceStream, canvas) {
   video.srcObject = sourceStream;
   video.muted = true;
   video.playsInline = true;
-  // Kept in the DOM (off-screen, invisible) rather than detached: some
-  // mobile browsers pause/never start decoding a <video> that's never
-  // attached, even when scripted with a live MediaStream.
-  video.style.cssText = 'position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;';
+  // Kept in the DOM at full/real size, nearly (not fully) transparent, and
+  // stacked behind the visible canvas — NOT shrunk to 1x1px with
+  // opacity:0. That combination gets treated as "not actually visible" by
+  // iOS Safari's power-saving heuristics, which silently stop decoding new
+  // frames into a video like that after a few seconds (audio keeps playing
+  // since it's an unrelated track) — the exact "video freezes ~5s in,
+  // audio plays to the end" symptom this caused during a real recording.
+  video.style.cssText = 'position:absolute; inset:0; width:100%; height:100%; opacity:0.01; z-index:-1; pointer-events:none;';
   document.body.appendChild(video);
   video.play().catch(() => {});
 
