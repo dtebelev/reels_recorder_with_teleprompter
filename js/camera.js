@@ -96,6 +96,14 @@ export function mirrorToCanvas(sourceStream, canvas) {
     resizeCanvasToDisplaySize();
   });
   window.addEventListener('resize', resizeCanvasToDisplaySize);
+
+  // Size the canvas to its real on-screen (portrait) dimensions *before*
+  // capturing a stream from it. captureStream() locks in whatever the
+  // canvas's width/height happen to be at that exact call — if that's
+  // still the HTML default (300x150, landscape), the recording comes out
+  // squished, because later frames get drawn at the correct portrait size
+  // into a track whose declared dimensions never updated to match.
+  resizeCanvasToDisplaySize();
   rafId = requestAnimationFrame(tick);
 
   const canvasStream = canvas.captureStream(30);
