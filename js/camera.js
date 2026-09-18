@@ -6,21 +6,34 @@ export class CameraError extends Error {
   }
 }
 
-export async function acquireFrontCameraStream() {
+/**
+ * Camera profiles offered in Settings.
+ *
+ * Resolution and field of view pull against each other on a phone's front
+ * camera, and how they trade off is device-specific — so this is a choice
+ * the person makes and verifies, not something guessed here. Two attempts
+ * to simply pick a "better" resolution both shipped regressions (a
+ * zoomed-in frame once, a sideways-recorded file the next time), which is
+ * exactly why these are selectable and why the ⓘ diagnostics panel reports
+ * the finished file's real dimensions.
+ *
+ * `wide` asks for nothing at all and takes the camera's default — on the
+ * device this was built against that's 480x640: low-resolution, but the
+ * widest framing and the only profile confirmed to record right-side-up.
+ * The 16:9 profiles are typically the camera's own high-resolution video
+ * modes, and are already the shape Reels/Shorts want — but on a 4:3 sensor
+ * they're produced by cropping, so expect a tighter frame.
+ */
+export const QUALITY_PROFILES = {
+  wide: {},
+  hd: { width: { ideal: 720 }, height: { ideal: 1280 } },
+  max: { width: { ideal: 1080 }, height: { ideal: 1920 } },
+};
+
+export async function acquireFrontCameraStream(quality = 'wide') {
   try {
-    // Reverted an attempt to raise resolution while keeping the camera's
-    // native 3:4 shape (width:1080/height:1440 "ideal"): it reintroduced
-    // both a zoomed-in frame AND a sideways-recorded output file. The
-    // camera's default negotiated mode (no explicit width/height at all)
-    // is the one actually confirmed, via the diagnostics panel, to record
-    // a correctly-oriented, correctly-framed portrait file (480x640) — see
-    // docs/HANDOFF.md. Lower resolution is a real trade-off, but a correct
-    // 480x640 clip beats a sideways or over-zoomed 1080x1440 one. If
-    // resolution is revisited, raise it in small steps and confirm both
-    // orientation and framing via the ⓘ diagnostics panel after each step,
-    // not all at once.
     return await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user' },
+      video: { facingMode: 'user', ...(QUALITY_PROFILES[quality] ?? {}) },
       audio: true,
     });
   } catch (err) {

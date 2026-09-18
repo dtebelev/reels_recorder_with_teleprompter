@@ -5,6 +5,11 @@ export const DEFAULT_SETTINGS = {
   script: '',
   speedPxPerSec: 30,
   fontSizePx: 28,
+  // Which camera profile to request — see QUALITY_PROFILES in camera.js.
+  // Defaults to the widest, most reliably-oriented one rather than the
+  // sharpest, because that's the combination confirmed to record correctly
+  // on the device this was built against.
+  videoQuality: 'wide',
 };
 
 // Merely *accessing* globalThis.localStorage can throw in some restricted

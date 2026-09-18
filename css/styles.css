@@ -30,6 +30,13 @@ html, body {
   flex: 1; padding: 12px; font-size: 20px; background: #1a1a1c; color: #fff;
   border: 1px solid #333; border-radius: 8px;
 }
+#quality-row button { font-size: 14px; }
+.row__btn--active {
+  background: #ff5a36; border-color: #ff5a36; font-weight: 600;
+}
+.hint {
+  margin: 8px 0 0; color: #8b8b93; font-size: 12px; line-height: 1.45;
+}
 button.primary {
   margin-top: 24px; width: 100%; padding: 16px; font-size: 18px;
   background: #ff5a36; color: #fff; border: none; border-radius: 12px;

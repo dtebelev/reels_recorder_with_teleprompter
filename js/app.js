@@ -87,9 +87,32 @@ function renderSetup() {
           <button id="font-up" aria-label="Больше">+</button>
         </div>
       </label>
+      <label>
+        Качество видео
+        <div class="row" id="quality-row">
+          <button type="button" data-quality="wide">Широкий кадр</button>
+          <button type="button" data-quality="hd">HD</button>
+          <button type="button" data-quality="max">Максимум</button>
+        </div>
+        <p class="hint">Выше качество — уже кадр: камера снимает его обрезкой. После записи загляни в ⓘ, чтобы увидеть, что получилось на самом деле.</p>
+      </label>
       <button id="rehearse-btn" class="primary">Проверить суфлёр</button>
     </div>
   `;
+
+  const qualityRow = document.getElementById('quality-row');
+  const paintQuality = () => {
+    for (const btn of qualityRow.querySelectorAll('button')) {
+      btn.classList.toggle('row__btn--active', btn.dataset.quality === settings.videoQuality);
+    }
+  };
+  paintQuality();
+  qualityRow.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-quality]');
+    if (!btn) return;
+    settings = saveSettings(undefined, { videoQuality: btn.dataset.quality });
+    paintQuality();
+  });
 
   const scriptEl = document.getElementById('script');
   scriptEl.addEventListener('input', () => {
@@ -135,7 +158,7 @@ async function renderRehearsal() {
   `;
 
   try {
-    cameraStream = await acquireFrontCameraStream();
+    cameraStream = await acquireFrontCameraStream(settings.videoQuality);
   } catch (err) {
     renderCameraError(err);
     return;
@@ -219,6 +242,7 @@ function renderRecording() {
   `;
 
   startSession();
+  logEvent('качество', settings.videoQuality);
   logEvent('wake lock', wakeLock ? 'активен' : 'недоступен');
 
   document.getElementById('preview').srcObject = cameraStream;
