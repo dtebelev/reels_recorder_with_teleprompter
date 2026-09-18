@@ -32,6 +32,7 @@ let timerIntervalId = null;
 let recordedBlob = null;
 
 const TELEPROMPTER_START_DELAY_MS = 6000; // time to get ready before the script starts scrolling
+const RECORDER_STOP_TIMEOUT_MS = 8000; // safety net if MediaRecorder.stop() never resolves
 
 function renderSetup() {
   app.innerHTML = `
@@ -243,11 +244,34 @@ function renderRecording() {
     pauseBtn.disabled = true;
     clearInterval(timerIntervalId);
     teleprompter.stop();
-    stopMirrorPreview();
     elapsedBeforePauseMs = recordedElapsedMs();
     recordingStartTime = null;
-    recordedBlob = await recorder.stop();
+    // Keep the canvas/video pipeline alive until the recorder has actually
+    // finished finalizing the file — tearing it down first was suspected of
+    // contributing to recordings that never completed on some devices.
+    recordedBlob = await withTimeout(recorder.stop(), RECORDER_STOP_TIMEOUT_MS).catch(() => null);
+    stopMirrorPreview();
+    if (!recordedBlob) {
+      // recorder.stop() never resolved (or genuinely failed) — don't leave
+      // the person stuck on a dead screen forever.
+      stopStream(cameraStream);
+      cameraStream = null;
+      renderRecorderError(new Error('Не удалось завершить запись — попробуйте ещё раз.'));
+      return;
+    }
     renderReview();
+  });
+}
+
+/** Rejects if `promise` hasn't settled within `ms`, so a hung MediaRecorder
+ * can't strand the user on the Recording screen forever. */
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
   });
 }
 

@@ -8,8 +8,15 @@ export class CameraError extends Error {
 
 export async function acquireFrontCameraStream() {
   try {
+    // No explicit width/height: asking for a specific (tall) resolution
+    // makes some browsers pick a digitally-cropped/zoomed-in readout from
+    // the sensor to hit that exact aspect ratio, instead of the sensor's
+    // natural wide field of view the native camera app uses. Letting the
+    // browser choose its default resolution and doing our own cover-crop
+    // to the screen (see mirrorToCanvas) matches the native camera's
+    // framing much more closely.
     return await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 1080 }, height: { ideal: 1920 } },
+      video: { facingMode: 'user' },
       audio: true,
     });
   } catch (err) {
@@ -44,7 +51,15 @@ export function mirrorToCanvas(sourceStream, canvas) {
   video.play().catch(() => {});
 
   const ctx = canvas.getContext('2d');
-  let rafId = null;
+  let frameHandle = null;
+  let stopped = false;
+  // requestVideoFrameCallback fires once per actual new camera frame
+  // (matching the camera's real capture rate, typically ~30fps); plain
+  // requestAnimationFrame fires at the display's refresh rate, which on
+  // newer iPhones (ProMotion, up to 120Hz) redraws and re-encodes far more
+  // often than needed — extra CPU load that risked destabilizing longer
+  // recordings. Fall back to rAF where rVFC isn't available.
+  const useVideoFrameCallback = typeof video.requestVideoFrameCallback === 'function';
 
   function resizeCanvasToDisplaySize() {
     const rect = canvas.getBoundingClientRect();
@@ -87,11 +102,21 @@ export function mirrorToCanvas(sourceStream, canvas) {
     ctx.restore();
   }
 
-  function tick() {
+  function scheduleNextFrame() {
+    if (stopped) return;
+    if (useVideoFrameCallback) {
+      frameHandle = video.requestVideoFrameCallback(onFrame);
+    } else {
+      frameHandle = requestAnimationFrame(onFrame);
+    }
+  }
+
+  function onFrame() {
     resizeCanvasToDisplaySize();
     drawCoverFrame();
-    rafId = requestAnimationFrame(tick);
+    scheduleNextFrame();
   }
+
   video.addEventListener('loadedmetadata', () => {
     resizeCanvasToDisplaySize();
   });
@@ -104,7 +129,7 @@ export function mirrorToCanvas(sourceStream, canvas) {
   // squished, because later frames get drawn at the correct portrait size
   // into a track whose declared dimensions never updated to match.
   resizeCanvasToDisplaySize();
-  rafId = requestAnimationFrame(tick);
+  scheduleNextFrame();
 
   const canvasStream = canvas.captureStream(30);
   sourceStream.getAudioTracks().forEach((track) => canvasStream.addTrack(track));
@@ -112,8 +137,12 @@ export function mirrorToCanvas(sourceStream, canvas) {
   return {
     stream: canvasStream,
     stop() {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      rafId = null;
+      stopped = true;
+      if (frameHandle !== null) {
+        if (useVideoFrameCallback) video.cancelVideoFrameCallback(frameHandle);
+        else cancelAnimationFrame(frameHandle);
+      }
+      frameHandle = null;
       window.removeEventListener('resize', resizeCanvasToDisplaySize);
       video.pause();
       video.srcObject = null;
