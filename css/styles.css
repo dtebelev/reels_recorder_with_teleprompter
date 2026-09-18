@@ -31,7 +31,12 @@ html, body {
   border: 1px solid #333; border-radius: 8px;
 }
 #quality-row button { font-size: 14px; }
-.row__btn--active {
+/* .row (two classes) reliably beats the plain-element ".row button"
+   reset above (specificity, not source order) — the same trap that's
+   hit this project three times already on other buttons. Never write
+   a lone ".foo--active" class for something inside ".row"/".controls";
+   scope it to the container. */
+.row .row__btn--active {
   background: #ff5a36; border-color: #ff5a36; font-weight: 600;
 }
 .hint {
