@@ -102,15 +102,17 @@ gettable via `curl -s https://loca.lt/mytunnelpassword`.
 ```
 index.html
 css/styles.css
-js/state.js         settings persistence (localStorage, DI'd, now with try/catch degrade-gracefully)
+js/state.js         settings persistence (localStorage, DI'd, try/catch degrade-gracefully)
 js/mime.js           MediaRecorder mime-type picker (mp4 -> webm fallback)
 js/scroll.js          pure scroll-offset math + speed clamping
-js/camera.js         getUserMedia wrapper (front camera + mic)
-js/recorder.js        MediaRecorder wrapper (start/pause/resume/stop -> Blob)
-js/teleprompter.js    RAF-driven scrolling text overlay, eye-contact layout
+js/camera.js         getUserMedia wrapper (front camera + mic) + QUALITY_PROFILES
+js/recorder.js        MediaRecorder wrapper (start/pause/resume/stop -> Blob) + diagnostics logging
+js/teleprompter.js    RAF-driven scrolling text overlay, eye-contact layout, drag-to-scrub
+js/diagnostics.js     in-app event log, surfaced via the Review screen's ⓘ chip — a permanent debugging aid, not temporary
 js/app.js             screen orchestration: Setup -> Rehearsal -> Countdown -> Recording -> Review
-manifest.json / sw.js / icons/*.png    PWA installability (icons are solid-color placeholders, replace with real art later)
-tests/*.test.mjs      plain node:test unit tests for state/mime/scroll (10 tests, run: node --test tests/*.test.mjs)
+manifest.json / sw.js / icons/*.png    PWA installability, installable to home screen; icons are real (see tools/make-icons.py), not placeholders
+tools/make-icons.py   regenerates icons/*.png from code (Pillow) — edit the concept function and rerun rather than hand-editing PNGs
+tests/*.test.mjs      plain node:test unit tests for state/mime/scroll (11 tests, run: node --test tests/*.test.mjs)
 ```
 
 ## Bugs found and fixed during live device QA (2026-09-17)
@@ -232,6 +234,20 @@ Reported right after the PWA-install round, which had added `env(safe-area-inset
 
 **Not yet confirmed this was the actual cause** — it's the most correlated recent change, and reverting it is low-risk/low-cost, but if buttons still mis-register after this, look elsewhere (e.g. whether the device is in standalone/installed mode vs. a regular tab when the bug occurs, which would help isolate whether `env()` behavior itself is the variable, or something else entirely).
 
+## Seventh round: home-screen install, real icons, camera diagnostics, quality selector (2026-09-17/18)
+
+Several smaller, more self-contained pieces of work landed around the same time as the button/resolution investigation above:
+
+**PWA install support.** The user asked to remove the browser's own "camera and microphone access allowed" banner — that's browser chrome, not something the page can suppress, but installing the app to the home screen removes the whole browser UI (address bar, toolbar, that banner) and was worth doing anyway for the extra screen space. iOS keys standalone-launch off legacy `apple-mobile-web-app-*` meta tags in `index.html`, not the manifest, so those were added (`apple-mobile-web-app-capable`, `-status-bar-style`, `-title`). This is also what introduced the `env(safe-area-inset-*)` CSS additions responsible for the button-mistap bug above — full-bleed standalone layout needs safe-area padding so content doesn't sit under the notch/home-indicator, but it was applied too broadly (onto interactive elements) at first.
+
+Install instructions given to the user: must be done from **Safari specifically** (Chrome on iOS can only bookmark, not install) — Share button → "На экран „Домой"" → Add.
+
+**Real app icon.** Was a solid-orange placeholder PNG. `tools/make-icons.py` draws icons from code with Pillow (no image-editing software needed, no binary art asset to hand-tune) — three concepts were generated, shown to the user on a temporary preview page (`icon-preview.html`, deployed then removed) rendered with iOS's own icon mask over light/dark wallpaper plus at favicon size. User picked concept B ("script lines tapering into a record button, on brand orange"); `python tools/make-icons.py build b` regenerates the actual shipped files (`icons/icon-192.png`, `icons/icon-512.png`, `icons/apple-touch-icon.png`, `icons/favicon-32.png`) at any time if the design needs tweaking — edit `concept_b()` in that script and rerun, don't hand-edit the PNGs.
+
+**Camera diagnostics** (`js/diagnostics.js`, wired through `js/recorder.js` and `js/app.js`) is what actually solved the Sixth Round freeze bug above — worth knowing it's there and cheap to extend. It's a small in-app event log surfaced behind an ⓘ chip on the Review screen, logging: chosen mime type, the video track's real resolution/frame rate, recorder errors, `mute`/`ended` events on the video track (the signal that distinguishes an OS/camera-side stall from an encoding problem), and the finished file's actual probed dimensions/duration. **This is a deliberate, permanent debugging aid for a project developed against a physical phone with no console access — don't remove it as "temporary" cleanup.**
+
+**Video quality selector.** Two earlier attempts to just pick a better `getUserMedia` resolution each shipped a regression (zoomed-in frame, then a sideways-recorded file) — the front camera's wide 4:3 framing and its high-resolution modes are apparently different, non-interchangeable camera profiles on this device, not a simple quality slider. Rather than guess a third time, added `QUALITY_PROFILES` in `js/camera.js` (`wide` = camera default/no constraint, `hd` = 720×1280, `max` = 1080×1920) exposed as three buttons in Setup, persisted via `settings.videoQuality` (defaults to `wide`, the only profile confirmed to record correctly). **Not yet verified which of `hd`/`max` actually record right-side-up on the user's device** — ask them to try each, check the ⓘ panel's "файл" line after each take (width should stay less than height), and report back before assuming either works.
+
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 
 These were explicitly scoped out as trade-offs or lower priority. Revisit if they cause real problems during device QA:
@@ -244,23 +260,26 @@ These were explicitly scoped out as trade-offs or lower priority. Revisit if the
 
 ## What's left (in priority order)
 
-0. **Fix the three open bugs in "Open bugs from live device QA" above** (Photos save target, timer overlap, black video playback). These came directly from the user testing on their own iPhone and are the immediate next task.
-1. **Continue Task 13 — manual on-device QA.** It's in progress (see above), not done. Keep following the checklist in the plan's Task 13 section. The final whole-implementation review flagged these as the highest-risk things to check specifically:
-   - **iOS Safari `<a download>` on a blob URL** — Safari has historically ignored `download` and navigated to the video instead, which inside an installed PWA could strand the user with no back button. Test "Оставить" on iOS first; if broken, fall back to `navigator.share({ files: [...] })`.
-   - **Pause → resume → stop file integrity on iOS** — confirm the saved file actually plays correctly past the pause point (audio/video still in sync) in the phone's native player, not just the in-app preview.
-   - **The eye-contact layout on a real phone with a notch/Dynamic Island** — the teleprompter band is `20vh` from the top with no `env(safe-area-inset-top)` handling; the "read here" marker (the whole point of the app) could sit under the notch. Check on a notched device specifically.
-   - **Recorded video orientation/aspect** — confirm actual output is 9:16 portrait, not rotated.
-   - Offline relaunch after installing to home screen (service worker).
-2. Once real device issues surface, fix them (likely small, targeted changes — the codebase is small and modular).
-3. Decide what to do with the two untracked files (see above).
-4. Consider addressing the deferred issues list above if they turn out to matter in practice.
-5. Eventually replace the placeholder icons with real artwork.
+As of the end of the Seventh Round (above), these are open and unconfirmed — start here:
+
+1. **Confirm the button-mistap fix actually worked.** Reverting the `env(safe-area-inset-*)` additions on `.controls`/`.link-btn`/`.diag-btn` was a reasonable, low-risk guess, but the user hadn't confirmed it fixed the "have to tap near a button, not on it" problem as of this writing. If it's still happening, see the "Buttons needing multiple taps" section above for where to look next.
+2. **Have the user try the `hd` and `max` video quality profiles** (Setup screen, "Качество видео") and report, for each, what the ⓘ diagnostics panel's "файл" line says — specifically whether width < height (correct portrait) or width > height (recording sideways again, like the earlier `1080x1440` regression). Whichever profile(s) come back correct, consider making the best one the new default instead of `wide`.
+3. **Finish Task 13 — manual on-device QA generally.** Much of the original checklist has now been covered through the rounds above (Photos-save via `navigator.share`, timer repositioned off the teleprompter band, black-video-on-playback fixed, orientation fixed, offline shell caching in place, icons done), but nothing has been formally checked off — treat the plan's Task 13 checklist as a loose guide, not a literal TODO list to still execute fresh. Two items from it still worth deliberately re-checking:
+   - **Notch/Dynamic Island clearance** — safe-area handling exists on the teleprompter band, `.screen` padding, and `.status-topright`, but hasn't been visually confirmed on a notched device since the button-mistap investigation touched nearby CSS.
+   - **Pause → resume → stop file integrity** — confirm audio/video stay in sync across a paused-and-resumed take, not just a continuous one.
+4. Decide what to do with the two untracked files at the repo root (`Screenshot 2026-09-17 133645.png` and `.agents/`, see the deferred-issues list above) — still unresolved, low priority.
+5. Consider the other deferred issues above if they turn out to matter in practice (camera stream re-acquisition latency on Retake, MediaRecorder-unsupported detection timing, the countdown screen replacing rather than overlaying the camera preview, `Recorder.canPause` being unreliable as a feature-detect).
+6. Once things are stable, consider removing the diagnostics ⓘ panel's visibility for end users (or gating it behind something less prominent) — it was built as a debugging aid, not a polished user-facing feature, even though the underlying logging is worth keeping permanently.
 
 ## Quick start for a new session
 
 ```bash
 cd "E:\REELS RECORDER with TELEPROMPTER"
 node --test tests/*.test.mjs   # confirm unit tests still pass
-npx serve .                     # or: python -m http.server
-# open the printed URL on a phone on the same network, or desktop Chrome with a webcam
+```
+
+For device testing, **use the GitHub/Vercel deploy, not a local server** — see "How to test on a real device" above. In short: commit, `git push`, wait ~15-20s for Vercel's auto-deploy, then have the user reload https://reels-recorder-teleprompter.vercel.app. Verify a deploy actually landed before telling the user to check, e.g.:
+
+```bash
+curl -s https://reels-recorder-teleprompter.vercel.app/js/app.js | grep -c "some-string-you-just-added"
 ```
