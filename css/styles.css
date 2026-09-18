@@ -7,6 +7,13 @@ html, body {
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
   overscroll-behavior: none;
 }
+/* iOS Safari can require a "throwaway" first tap on a button that has no
+   explicit cursor before a real click registers — most noticeable here
+   because every screen is a freshly-built <button> via innerHTML, never
+   one the page has had a chance to interact with before. This is the
+   standard fix. Applies everywhere, not just one screen, since it was
+   reported across the whole app. */
+button, a, [role="button"] { cursor: pointer; touch-action: manipulation; }
 #app {
   position: fixed;
   inset: 0;
@@ -178,9 +185,13 @@ button.primary {
      the native <video controls> chrome (AirPlay/cast, fullscreen toggle,
      the "..." menu) draws inside this box's own corners, and without
      margin it collides with the diagnostics button above and the
-     Keep/Retake bar below. */
+     Keep/Retake bar below. Top and bottom insets are kept EQUAL on
+     purpose: the native play/skip-10s buttons center themselves within
+     this element's own box, not the visible screen, so an asymmetric
+     inset (more room reserved at the bottom for Keep/Retake than at the
+     top) visibly pushes them off-center. */
   position: absolute;
-  top: calc(8px + env(safe-area-inset-top, 0px));
+  top: calc(112px + env(safe-area-inset-top, 0px));
   bottom: calc(112px + env(safe-area-inset-bottom, 0px));
   left: 0; right: 0;
   object-fit: contain; background: #000;
