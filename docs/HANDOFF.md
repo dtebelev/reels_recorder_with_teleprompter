@@ -214,9 +214,23 @@ No `mute` event, no `ended` event, chunks flowing the entire time, full-length f
 
 **Lesson worth carrying forward:** four rounds of architectural changes (canvas pipeline, rVFC, wake lock, a full revert) were spent on a bug that lived in eight lines of playback code. When a symptom survives a change that *should* have been decisive, that's the signal to stop fixing and start measuring. The diagnostics chip is cheap and stays in the app — use it before theorizing.
 
-### Resolution vs. field of view (learned the same day)
+### Resolution vs. field of view — first attempt was wrong, reverted (2026-09-17/18)
 
-The diagnostics also revealed the camera was capturing at only **480x640**, because an earlier fix had removed the `getUserMedia` width/height constraints entirely to cure an over-zoomed frame. Both problems have one root: **the front camera's native aspect ratio is 3:4**, and asking for a 9:16 frame (`1080x1920`) makes the browser digitally crop into the sensor to produce it — narrower field of view. Asking for high resolution *in the camera's own 3:4 shape* (`1080x1440`, `ideal` not `exact`) gets detail without the crop. The 9:16 framing for Reels happens in CSS (`object-fit: cover`) on the preview instead. Don't "simplify" that constraint back to a 9:16 request — that's what caused the zoom complaint.
+The diagnostics revealed the camera was capturing at only **480x640**, so a fix was tried: request `width:{ideal:1080}, height:{ideal:1440}` (the camera's own 3:4 shape, just higher-resolution) instead of no constraint at all, reasoning that same-shape-higher-res should mean more detail with no crop.
+
+**That reasoning was wrong in practice.** The user reported two new regressions from it: the frame looked zoomed-in again, AND the recorded output came out landscape/sideways instead of portrait — not merely low-resolution-but-correct like before. Whatever resolution mode `{ideal:1080, ideal:1440}` actually negotiates on this device, it is not simply "the same 480x640 mode at higher detail" — it's a genuinely different camera mode with different framing and, seemingly, different rotation-metadata handling that `MediaRecorder` doesn't compensate for (the `<video>` preview still displayed it right-side-up because browsers apply display-time rotation to `<video>`, but raw encoding does not).
+
+**Reverted to no width/height constraint at all** (`{ facingMode: 'user' }`), which is the exact configuration proven via the diagnostics panel to produce a correctly-oriented, correctly-framed 480x640 file. Low resolution is a real cost, but it beats a sideways or over-zoomed file.
+
+**If resolution is revisited:** don't jump straight to a specific target. Raise it in small increments (e.g. try `ideal: 720`/`960` before `1080`/`1440`) and check the ⓘ diagnostics panel's "файл" line (which reports the *actual saved file's* width/height and duration) after each step — width should stay less than height (portrait), and framing should be eyeballed against the native Camera app. Don't ship a resolution change without that confirmation; this is the second time a resolution change alone broke something in a way that wasn't obvious from just watching the live preview.
+
+### Buttons needing multiple taps / "tap near it, not on it" (2026-09-17/18)
+
+Reported right after the PWA-install round, which had added `env(safe-area-inset-*)` via `calc()` to several `position: absolute` interactive elements (`.controls`, `.link-btn`, `.diag-btn`) so they'd clear the notch/home-indicator once installed standalone. **Suspected but not proven**: that combination — safe-area inset computed inside a `calc()` on an absolutely-positioned *interactive* element — caused a mismatch between the visual position and the actual hit-testable area, especially likely if tested in a regular browser tab (not installed) where the safe-area/toolbar interaction is more variable than in standalone mode.
+
+**Reverted** the safe-area additions on those three specifically (back to fixed pixel offsets), while leaving safe-area handling in place on purely non-interactive/visual elements (`.screen` padding, the teleprompter band's top offset, `.status-topright`) since those can't have a hit-test mismatch. Also gave `.link-btn` explicit padding (it was previously just underlined text with zero hit-area beyond the glyphs) and `.controls button` some padding (helps "Медленнее"/"Быстрее", which had none — harmless no-op on the circular buttons since they're empty and `box-sizing: border-box`).
+
+**Not yet confirmed this was the actual cause** — it's the most correlated recent change, and reverting it is low-risk/low-cost, but if buttons still mis-register after this, look elsewhere (e.g. whether the device is in standalone/installed mode vs. a regular tab when the bug occurs, which would help isolate whether `env()` behavior itself is the variable, or something else entirely).
 
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 
