@@ -77,6 +77,24 @@ button.primary {
   width: 72px; height: 72px; border-radius: 50%;
   background: #ff5a36; border: 4px solid #fff;
 }
+/* Scoped as ".controls .speed-btn" (two classes), not ".speed-btn" alone —
+   see the repeated-four-times specificity note above ".controls .pause-btn". */
+.controls .speed-btn {
+  background: rgba(24, 20, 18, 0.55);
+  border: 1px solid rgba(240, 224, 218, 0.4);
+  border-radius: 999px;
+  padding: 14px 22px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f2ddd8;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: transform 0.12s ease;
+}
+.controls .speed-btn:active { transform: scale(0.95); }
 .link-btn {
   position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px; z-index: 20;
   background: none; border: none; color: #fff; text-decoration: underline;

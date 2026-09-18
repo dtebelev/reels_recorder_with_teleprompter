@@ -149,9 +149,9 @@ async function renderRehearsal() {
       <video id="preview" autoplay playsinline muted></video>
       <div id="teleprompter-mount"></div>
       <div class="controls">
-        <button id="slower">Медленнее</button>
+        <button id="slower" class="speed-btn">Медленнее</button>
         <button id="record-btn" class="record-btn"></button>
-        <button id="faster">Быстрее</button>
+        <button id="faster" class="speed-btn">Быстрее</button>
       </div>
       <button id="back-btn" class="link-btn">← Настройки</button>
     </div>
