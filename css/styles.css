@@ -75,10 +75,13 @@ button.primary {
 
 .controls--recording { justify-content: center; gap: 48px; }
 .pause-btn {
+  /* White while actively recording ("tap to pause"); turns red once
+     paused, mimicking a record button ("tap to resume") — matches the
+     iOS Camera app's own pause control. */
   width: 60px; height: 60px; border-radius: 50%;
-  background: #ff5a36; border: none;
+  background: #fff; border: none;
 }
-.pause-btn--active { background: #ff8a36; }
+.pause-btn--active { background: #ff3b30; }
 .stop-circle-btn {
   width: 72px; height: 72px; border-radius: 50%;
   background: #2b2b2b; border: 3px solid #fff;
