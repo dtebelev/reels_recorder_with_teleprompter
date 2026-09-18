@@ -7,6 +7,12 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="theme-color" content="#0b0b0c" />
+  <!-- iOS still keys off these legacy tags (not the manifest) to decide
+       whether "Add to Home Screen" launches standalone. Without them the
+       app opens inside Safari's chrome, address bar and all. -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Суфлёр" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
