@@ -4,6 +4,7 @@ import { clampSpeed, SPEED_STEP } from './scroll.js';
 import { CameraError, acquireFrontCameraStream, stopStream } from './camera.js';
 import { Teleprompter } from './teleprompter.js';
 import { Recorder } from './recorder.js';
+import { startSession, logEvent, getReport } from './diagnostics.js';
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -211,6 +212,9 @@ function renderRecording() {
     </div>
   `;
 
+  startSession();
+  logEvent('wake lock', wakeLock ? 'активен' : 'недоступен');
+
   document.getElementById('preview').srcObject = cameraStream;
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
   teleprompter.start(TELEPROMPTER_START_DELAY_MS);
@@ -274,6 +278,9 @@ function renderRecording() {
     elapsedBeforePauseMs = recordedElapsedMs();
     recordingStartTime = null;
     recordedBlob = await withTimeout(recorder.stop(), RECORDER_STOP_TIMEOUT_MS).catch(() => null);
+    if (recordedBlob) {
+      logEvent('файл', await probeBlob(recordedBlob));
+    }
     if (!recordedBlob) {
       // recorder.stop() never resolved (or genuinely failed) — don't leave
       // the person stuck on a dead screen forever.
@@ -285,6 +292,46 @@ function renderRecording() {
     }
     renderReview();
   });
+}
+
+/** Reads back what actually landed in the recorded file (dimensions and
+ * duration), so a broken recording can be told apart from a recording that
+ * merely plays back badly. */
+function probeBlob(blob) {
+  return new Promise((resolve) => {
+    const probe = document.createElement('video');
+    probe.preload = 'metadata';
+    probe.muted = true;
+    const url = URL.createObjectURL(blob);
+    let settled = false;
+    const done = (info) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      resolve(`${Math.round(blob.size / 1024)} КБ, ${info}`);
+    };
+    probe.onloadedmetadata = () => done(`${probe.videoWidth}x${probe.videoHeight}, длительность=${probe.duration}`);
+    probe.onerror = () => done('метаданные не читаются');
+    setTimeout(() => done('таймаут чтения метаданных'), 3000);
+    probe.src = url;
+  });
+}
+
+/** MediaRecorder output often carries no duration (`Infinity`), which makes
+ * `<video>` playback stall partway through while audio keeps going. Seeking
+ * far past the end forces the browser to scan the file and work out the real
+ * duration, after which normal playback and seeking behave. */
+function repairBlobPlayback(video) {
+  video.addEventListener('loadedmetadata', () => {
+    if (video.duration !== Infinity) return;
+    logEvent('починка', 'у файла duration=Infinity, пересчитываю');
+    video.currentTime = 1e101;
+    video.addEventListener('timeupdate', function onSeeked() {
+      video.removeEventListener('timeupdate', onSeeked);
+      video.currentTime = 0;
+      logEvent('починка завершена', `длительность=${video.duration}`);
+    });
+  }, { once: true });
 }
 
 /** Rejects if `promise` hasn't settled within `ms`, so a hung MediaRecorder
@@ -362,15 +409,19 @@ function renderReview() {
                Оставить
              </a>`}
       </div>
+      <button id="diag-btn" class="diag-btn" aria-label="Диагностика">ⓘ</button>
+      <pre id="diag-panel" class="diag-panel" hidden></pre>
     </div>
   `;
 
-  // Some mobile browsers show a black frame until the video is nudged once
-  // metadata is known — forcing a tiny seek makes the first real frame paint.
   const reviewVideo = document.getElementById('review-video');
-  reviewVideo.addEventListener('loadedmetadata', () => {
-    try { reviewVideo.currentTime = 0.01; } catch { /* ignore */ }
-  }, { once: true });
+  repairBlobPlayback(reviewVideo);
+
+  const diagPanel = document.getElementById('diag-panel');
+  document.getElementById('diag-btn').addEventListener('click', () => {
+    diagPanel.textContent = getReport();
+    diagPanel.hidden = !diagPanel.hidden;
+  });
 
   if (!canUseShare) {
     document.getElementById('keep-btn').href = videoUrl;

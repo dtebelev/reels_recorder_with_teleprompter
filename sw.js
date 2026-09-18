@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = 'reels-teleprompter-v3';
+const CACHE_NAME = 'reels-teleprompter-v4';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const SHELL_FILES = [
   './js/camera.js',
   './js/recorder.js',
   './js/teleprompter.js',
+  './js/diagnostics.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',

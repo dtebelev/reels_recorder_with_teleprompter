@@ -143,3 +143,24 @@ button.primary {
 .review-btn--primary {
   background: #ff5a36; box-shadow: 0 6px 18px rgba(255,90,54,0.45);
 }
+
+/* Diagnostics: a deliberately unobtrusive corner chip that reveals what the
+   recorder actually did. Here because this app is debugged against a
+   physical phone with no console access. */
+.diag-btn {
+  position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 30;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(0,0,0,0.45); color: rgba(255,255,255,0.75);
+  border: 1px solid rgba(255,255,255,0.25); font-size: 15px; line-height: 1;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.diag-panel {
+  position: absolute; top: calc(54px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px;
+  max-height: 45vh; overflow: auto; z-index: 30; margin: 0;
+  padding: 12px 14px; border-radius: 14px;
+  background: rgba(0,0,0,0.82); color: #e8e8e8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.45; white-space: pre-wrap;
+  border: 1px solid rgba(255,255,255,0.15);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
