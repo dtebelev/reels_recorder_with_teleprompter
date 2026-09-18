@@ -298,10 +298,19 @@ function renderReview() {
     <div class="screen screen--review">
       <video id="review-video" src="${videoUrl}" controls playsinline preload="auto"></video>
       <div class="review-actions">
-        <button id="retake-btn">Переснять</button>
+        <button id="retake-btn" class="review-btn review-btn--secondary">
+          <svg class="review-btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+          Переснять
+        </button>
         ${canUseShare
-          ? '<button id="keep-btn" class="primary">Оставить</button>'
-          : `<a id="keep-btn" class="primary" download="${filename}">Оставить</a>`}
+          ? `<button id="keep-btn" class="review-btn review-btn--primary">
+               <svg class="review-btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+               Оставить
+             </button>`
+          : `<a id="keep-btn" class="review-btn review-btn--primary" download="${filename}">
+               <svg class="review-btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+               Оставить
+             </a>`}
       </div>
     </div>
   `;
