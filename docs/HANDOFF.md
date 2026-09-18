@@ -158,7 +158,26 @@ above) instead of localtunnel — much more stable for iterating.
    - `stopMirrorPreview()` (which tears down the hidden helper `<video>` and cancels the draw loop) was being called *before* `await recorder.stop()` — reordered so the canvas/video pipeline stays alive until the recorder has actually finished, in case WebKit's encoder needs the source to still be live while finalizing.
    - Added a hard safety net regardless of root cause: `recorder.stop()` is now wrapped in an 8-second timeout (`withTimeout()` in `js/app.js`). If it doesn't resolve in time, the user is shown an error screen with a way back to Setup instead of being stuck on a dead Recording screen forever.
 
-   **Root cause found afterward (same day, next round):** it wasn't the recording hanging — playback in Review showed the *video freezing after ~5s while audio kept playing to the end*, confirmed directly by the user. That's the signature of `mirrorToCanvas()`'s hidden source `<video>` (the one `drawImage`'d onto the visible canvas every frame) getting throttled by iOS Safari's power-saving behavior for videos it considers "not actually visible" — it was styled `width:1px; height:1px; opacity:0`, which trips that heuristic after a few seconds and silently stops delivering new frames, while the separate audio track (added straight from the mic, unrelated to this video element) keeps playing fine. **Fixed** by keeping that helper video at full/real size (`inset:0; width:100%; height:100%`), just at `opacity:0.01` and `z-index:-1` behind the visible canvas, instead of 1×1px/opacity:0. **Not yet re-verified on device** — this was a strong, well-documented match for the symptom, but confirm with another multi-take test before considering it closed.
+   **Root cause suspected (same day, next round):** it wasn't the recording hanging — playback in Review showed the *video freezing after ~5s while audio kept playing to the end*, confirmed directly by the user. That looked like the signature of `mirrorToCanvas()`'s hidden source `<video>` (the one `drawImage`'d onto the visible canvas every frame) getting throttled by iOS Safari's power-saving behavior for videos it considers "not actually visible" — it was styled `width:1px; height:1px; opacity:0`. Tried fixing it by keeping that helper video at full/real size and `opacity:0.01` instead. **This did NOT fix it** — the user re-tested and reported the exact same freeze-then-audio-only symptom. See the next round for what actually happened as a result.
+
+## Fourth round: reverted the canvas-based WYSIWYG recording entirely (2026-09-17)
+
+The opacity/size fix for the frozen-video bug didn't help, and this was
+now the **third** distinct bug traced back to the `mirrorToCanvas()`
+canvas-recording pipeline (squished aspect, invisible controls sharing
+the same commit, and now a freeze that survived a targeted fix). Given
+multiple videos in a row were unusable, reliability was judged more
+important than exact on-screen/recorded mirror matching, so **the whole
+canvas-based recording approach was reverted**:
+
+- `js/camera.js`: deleted `mirrorToCanvas()` entirely. `acquireFrontCameraStream()` keeps the earlier fix (no forced width/height — still worth re-confirming the FOV now matches native, independent of this revert).
+- `js/app.js`: `renderRehearsal()`/`renderRecording()` go back to a plain `<video id="preview">` with `video.srcObject = cameraStream` (not a canvas), and `new Recorder(cameraStream)` records the **raw, unmirrored** camera track directly — no more `mirrorPreview`/`stopMirrorPreview()` anywhere.
+- `css/styles.css`: `#preview` is mirrored again via `transform: scaleX(-1)` (preview-only, as originally built) plus `object-fit: cover`.
+- The `withTimeout()` safety net around `recorder.stop()` (Round 3, item 5's timeout) was **kept** — it's cheap insurance regardless of pipeline, and there was never conclusive proof canvas-vs-direct-track was the only possible source of a hang.
+
+**Net effect / known trade-off:** the live preview is mirrored (for framing, "like a mirror") but the **saved video is not** — same as Instagram, TikTok, and most camera apps, and the same as this project's very first working version before the WYSIWYG detour. If the user still wants true mirror-matching in the saved file in the future, canvas-based recording is really the only way to do it in a browser, so revisiting it would mean debugging the freeze properly with Safari's remote Web Inspector (connect iPhone to a Mac, Settings > Safari > Advanced > Web Inspector, then Safari on Mac > Develop menu) rather than guessing blind — don't re-attempt it speculatively without that kind of real diagnostic access.
+
+**Not yet re-verified on device**: confirm recording no longer freezes across several consecutive takes, and confirm the FOV fix (no forced resolution) actually narrowed the gap with the native Camera app now that the simpler pipeline is back in place.
 
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 

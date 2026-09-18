@@ -1,7 +1,7 @@
 // js/app.js
 import { loadSettings, saveSettings } from './state.js';
 import { clampSpeed, SPEED_STEP } from './scroll.js';
-import { CameraError, acquireFrontCameraStream, stopStream, mirrorToCanvas } from './camera.js';
+import { CameraError, acquireFrontCameraStream, stopStream } from './camera.js';
 import { Teleprompter } from './teleprompter.js';
 import { Recorder } from './recorder.js';
 
@@ -16,14 +16,6 @@ let settings = loadSettings();
 
 let cameraStream = null;
 let teleprompter = null;
-let mirrorPreview = null; // canvas-based mirrored preview; its .stream is what actually gets recorded
-
-function stopMirrorPreview() {
-  if (mirrorPreview) {
-    mirrorPreview.stop();
-    mirrorPreview = null;
-  }
-}
 
 let recorder = null;
 let recordingStartTime = null; // start of the current (unpaused) segment, or null while paused
@@ -87,7 +79,7 @@ function renderSetup() {
 async function renderRehearsal() {
   app.innerHTML = `
     <div class="screen screen--camera">
-      <canvas id="preview"></canvas>
+      <video id="preview" autoplay playsinline muted></video>
       <div id="teleprompter-mount"></div>
       <div class="controls">
         <button id="slower">Медленнее</button>
@@ -105,7 +97,7 @@ async function renderRehearsal() {
     return;
   }
 
-  mirrorPreview = mirrorToCanvas(cameraStream, document.getElementById('preview'));
+  document.getElementById('preview').srcObject = cameraStream;
 
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
   teleprompter.start(TELEPROMPTER_START_DELAY_MS);
@@ -120,16 +112,14 @@ async function renderRehearsal() {
   });
   document.getElementById('back-btn').addEventListener('click', () => {
     teleprompter.stop();
-    stopMirrorPreview();
     stopStream(cameraStream);
     renderSetup();
   });
   document.getElementById('record-btn').addEventListener('click', () => {
-    // Stop the rehearsal RAF loops before the countdown replaces the DOM;
-    // renderRecording() builds a fresh Teleprompter and mirror preview for
-    // the take (cameraStream itself stays alive and is reused).
+    // Stop the rehearsal RAF loop before the countdown replaces the DOM;
+    // renderRecording() builds a fresh Teleprompter for the take
+    // (cameraStream itself stays alive and is reused).
     teleprompter.stop();
-    stopMirrorPreview();
     renderCountdown();
   });
 }
@@ -169,7 +159,7 @@ async function renderCountdown() {
 function renderRecording() {
   app.innerHTML = `
     <div class="screen screen--camera">
-      <canvas id="preview"></canvas>
+      <video id="preview" autoplay playsinline muted></video>
       <div id="teleprompter-mount"></div>
       <div class="status-topright">
         <div class="timer" id="timer">00:00</div>
@@ -182,21 +172,18 @@ function renderRecording() {
     </div>
   `;
 
-  mirrorPreview = mirrorToCanvas(cameraStream, document.getElementById('preview'));
+  document.getElementById('preview').srcObject = cameraStream;
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
   teleprompter.start(TELEPROMPTER_START_DELAY_MS);
 
   try {
-    // Record from the exact same mirrored/cropped stream shown on screen,
-    // not the raw camera track, so the saved file matches what was framed.
-    recorder = new Recorder(mirrorPreview.stream);
+    recorder = new Recorder(cameraStream);
     recorder.start();
   } catch (err) {
     // No supported MediaRecorder format (or the recorder refused to start):
     // tear the half-wired screen down instead of leaving a live camera and a
     // scrolling teleprompter with non-functional controls.
     teleprompter.stop();
-    stopMirrorPreview();
     stopStream(cameraStream);
     cameraStream = null;
     recorder = null;
@@ -246,11 +233,7 @@ function renderRecording() {
     teleprompter.stop();
     elapsedBeforePauseMs = recordedElapsedMs();
     recordingStartTime = null;
-    // Keep the canvas/video pipeline alive until the recorder has actually
-    // finished finalizing the file — tearing it down first was suspected of
-    // contributing to recordings that never completed on some devices.
     recordedBlob = await withTimeout(recorder.stop(), RECORDER_STOP_TIMEOUT_MS).catch(() => null);
-    stopMirrorPreview();
     if (!recordedBlob) {
       // recorder.stop() never resolved (or genuinely failed) — don't leave
       // the person stuck on a dead screen forever.

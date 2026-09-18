@@ -31,10 +31,14 @@ button.primary {
 
 .screen--camera { position: relative; padding: 0; }
 #preview {
-  /* Mirroring/cropping is drawn onto the canvas itself (js/camera.js
-     mirrorToCanvas) so the recorded file matches this pixel-for-pixel —
-     no CSS transform here, that would double-flip it. */
+  /* Mirrored for a natural "looking in a mirror" framing aid, same as
+     every other camera app — but this is preview-only. Recording uses
+     the raw (unmirrored) camera track: a canvas-based approach that
+     recorded exactly what's mirrored on screen was tried and reverted
+     after it caused videos to freeze partway through on-device (see
+     docs/HANDOFF.md) — reliability wins over exact WYSIWYG matching. */
   position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; transform: scaleX(-1);
 }
 .controls {
   position: absolute; bottom: 24px; left: 0; right: 0;
