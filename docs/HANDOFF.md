@@ -189,7 +189,34 @@ After reverting to the simplest possible pipeline (plain `<video srcObject>` + `
 
 **Fix applied:** the standard [Screen Wake Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API) (`navigator.wakeLock.request('screen')`), supported in iOS Safari since 16.4. `acquireWakeLock()`/`releaseWakeLock()` in `js/app.js` are now called alongside every existing camera-stream acquire/`stopStream()` pair (Rehearsal's camera acquisition, the back-button, both error paths, and Review). Also re-acquires automatically on `visibilitychange` back to visible, since browsers silently drop the wake lock whenever the tab is hidden (e.g. briefly during the native share sheet) and never restore it on their own.
 
-**Not yet verified on device — this is the current best theory, not a confirmed fix.** If it doesn't resolve the issue: ask the user to check Settings > Display & Brightness > Auto-Lock on their iPhone and temporarily set it to "Never" during a test recording, as an independent way to confirm or rule out this theory without relying on the Wake Lock API at all. If Auto-Lock=Never also still freezes, the screen-lock theory is wrong and this needs actual remote debugging (Safari Web Inspector via a Mac, as noted in Round 4) rather than further guessing — four rounds of blind fixes is already a lot; don't attempt a sixth without real console/device access if this one doesn't land.
+**This theory was wrong too** — the user set Auto-Lock to "Never" and the freeze still happened at ~10s. See the next section for how it was actually solved.
+
+## Sixth round: the freeze is SOLVED — it was never a recording bug (2026-09-17)
+
+Five rounds of blind fixes had failed. Instead of guessing a sixth time, the app was **instrumented** so it could report what actually happened, since this project is debugged against a physical iPhone with no browser console available:
+
+- `js/diagnostics.js` — timestamped in-app event log.
+- `js/recorder.js` — logs the chosen mime type, the video track's real resolution/frame rate, chunk/byte totals, recorder errors, and critically listens for `mute`/`ended` on the **video track**. A video track that goes `mute` has stopped delivering frames while the stream stays "live" — that's exactly what an OS/camera-side stall looks like from JS, and it distinguishes that from an encoding fault.
+- `js/app.js` — probes the finished file's real dimensions and duration, and shows the whole log behind an unobtrusive ⓘ chip on the Review screen.
+
+**The log from the user's next take settled it immediately:**
+
+```
++0.0s  формат: video/mp4;codecs=avc1.42E01E,mp4a.40.2
++0.0s  видеодорожка: 480x640 @30fps
++27.7s запись остановлена: 26 фрагментов, 28389 КБ
++27.9s файл: 28389 КБ, 480x640, длительность=27.668
+```
+
+No `mute` event, no `ended` event, chunks flowing the entire time, full-length file. **The recording was never broken.** The bug was in *playback*: `MediaRecorder` output routinely has no duration in its metadata (`duration === Infinity`), and a `<video>` element playing such a blob stalls partway through while the audio track keeps going — precisely the reported symptom, and the reason it survived every change to the recording pipeline, including the full canvas revert.
+
+**The actual fix** (`repairBlobPlayback()` in `js/app.js`): on `loadedmetadata`, if `duration === Infinity`, seek far past the end (`currentTime = 1e101`) to force the browser to scan the file and compute the real duration, then seek back to 0. Standard, well-known workaround. Confirmed working by the user: `длительность=27.668`.
+
+**Lesson worth carrying forward:** four rounds of architectural changes (canvas pipeline, rVFC, wake lock, a full revert) were spent on a bug that lived in eight lines of playback code. When a symptom survives a change that *should* have been decisive, that's the signal to stop fixing and start measuring. The diagnostics chip is cheap and stays in the app — use it before theorizing.
+
+### Resolution vs. field of view (learned the same day)
+
+The diagnostics also revealed the camera was capturing at only **480x640**, because an earlier fix had removed the `getUserMedia` width/height constraints entirely to cure an over-zoomed frame. Both problems have one root: **the front camera's native aspect ratio is 3:4**, and asking for a 9:16 frame (`1080x1920`) makes the browser digitally crop into the sensor to produce it — narrower field of view. Asking for high resolution *in the camera's own 3:4 shape* (`1080x1440`, `ideal` not `exact`) gets detail without the crop. The 9:16 framing for Reels happens in CSS (`object-fit: cover`) on the preview instead. Don't "simplify" that constraint back to a 9:16 request — that's what caused the zoom complaint.
 
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 
