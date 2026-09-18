@@ -391,11 +391,50 @@ function setupCustomVideoControls(video) {
   video.addEventListener('pause', syncIcon);
   syncIcon();
 
+  const bar = document.getElementById('progress-bar');
   const fill = document.getElementById('progress-fill');
+  const thumb = document.getElementById('progress-thumb');
+  const hasDuration = () => video.duration && isFinite(video.duration);
+
+  const paint = (ratio) => {
+    const pct = `${Math.min(1, Math.max(0, ratio)) * 100}%`;
+    fill.style.width = pct;
+    thumb.style.left = pct;
+  };
+
   video.addEventListener('timeupdate', () => {
-    if (!video.duration || !isFinite(video.duration)) return;
-    fill.style.width = `${(video.currentTime / video.duration) * 100}%`;
+    if (!hasDuration() || dragging) return;
+    paint(video.currentTime / video.duration);
   });
+
+  // Dragging pauses updates-from-playback above (the `dragging` guard) so
+  // the thumb tracks the finger, not the still-playing video, until release.
+  let dragging = false;
+  const ratioFromEvent = (e) => {
+    const rect = bar.getBoundingClientRect();
+    return (e.clientX - rect.left) / rect.width;
+  };
+  const seekTo = (ratio) => {
+    if (!hasDuration()) return;
+    video.currentTime = Math.min(1, Math.max(0, ratio)) * video.duration;
+  };
+
+  bar.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    bar.setPointerCapture(e.pointerId);
+    const ratio = ratioFromEvent(e);
+    paint(ratio);
+    seekTo(ratio);
+  });
+  bar.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const ratio = ratioFromEvent(e);
+    paint(ratio);
+    seekTo(ratio);
+  });
+  const endDrag = () => { dragging = false; };
+  bar.addEventListener('pointerup', endDrag);
+  bar.addEventListener('pointercancel', endDrag);
 }
 
 /** Rejects if `promise` hasn't settled within `ms`, so a hung MediaRecorder
@@ -462,7 +501,12 @@ function renderReview() {
       <button id="play-toggle" class="play-toggle" aria-label="Воспроизвести">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>
       </button>
-      <div class="progress-bar"><div class="progress-bar__fill" id="progress-fill"></div></div>
+      <div class="progress-bar" id="progress-bar">
+        <div class="progress-bar__track">
+          <div class="progress-bar__fill" id="progress-fill"></div>
+          <div class="progress-bar__thumb" id="progress-thumb"></div>
+        </div>
+      </div>
       <div class="review-actions">
         <button id="retake-btn" class="review-btn review-btn--secondary">
           <svg class="review-btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
