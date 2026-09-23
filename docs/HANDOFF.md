@@ -280,6 +280,55 @@ Three more fixes, the middle one broader than the others:
 
 Recap of what's been confirmed working by the user directly (not just deployed): the invisible record button, the black-screen crash, the teleprompter start delay and drag-to-scrub, the Keep→Setup flow and zero-data guard, the pause/stop button visibility and colors, the squished-video and frozen-video-during-playback bugs (the big one — five rounds, see Sixth Round above), the app icon, the quality-button highlight, and the app-wide first-tap-miss fix. Camera resolution is intentionally left at the lower-quality `wide` default (see the Seventh Round quality-selector section) until `hd`/`max` are verified not to reintroduce the sideways-recording bug — still unconfirmed, ask the user to test both. The custom Review-screen video controls (play button centering + drag-to-seek) are deployed but not yet explicitly confirmed — that and the quality-profile check are the two open loose ends going into the next session.
 
+## Tenth round: one-handed side scrub rail (2026-09-23)
+
+New feature request, not a bug: the user records while holding the phone in
+one hand and found the existing drag-to-scrub (dragging a finger directly on
+the teleprompter text, confined to the top ~20vh band) awkward to reach with
+a thumb while gripping the phone one-handed. They sent a screenshot of the
+Recording screen with a thick red vertical line drawn down the right edge as
+a mockup of what they wanted: a dedicated one-handed scroll control.
+
+**What was built:**
+- `js/teleprompter.js`: the existing internal pointerdown/move/up drag
+  handlers were refactored into three public methods —
+  `beginScrub()` / `scrubBy(deltaPx)` / `endScrub()` — so any external
+  element can drive the same scrub behavior, not just the teleprompter's own
+  DOM node. The internal drag-on-the-text handlers now just call these
+  three methods instead of duplicating the logic. Behavior is unchanged for
+  that existing gesture.
+- `js/app.js`: added a shared `attachScrubRail(tp, canAutoResume)` helper,
+  wired up in both `renderRehearsal()` and `renderRecording()` against a new
+  `#scrub-rail` element rendered on both screens (right after
+  `#teleprompter-mount` in the markup).
+- `css/styles.css`: `.scrub-rail` is a full-height (minus the teleprompter
+  band and the bottom controls, so it never overlaps either) 56px-wide
+  invisible touch strip along the right edge — wide hit target, per the
+  same "real controls need more finger-room than the line looks like it
+  needs" lesson as the Review screen's progress bar (Ninth round). Its
+  child `.scrub-rail__track` is the visible part: a 6px, red, glowing
+  vertical line — the visual the user's mockup screenshot asked for.
+
+**The one subtlety:** on the Recording screen, a scrub gesture must not
+silently un-pause a *paused recording* just because the finger lifted off
+the rail. `attachScrubRail()` takes an optional `canAutoResume` predicate
+(defaults to always-true, used as-is on Rehearsal); Recording passes
+`() => !paused` so lifting the thumb after scrubbing while paused leaves
+the teleprompter (and the recording) still paused, instead of resuming
+auto-scroll underneath a paused recording. This is why the Recording
+screen's `attachScrubRail(...)` call is positioned *after* `let paused =
+false` is declared, not immediately after building the Teleprompter like
+on the Rehearsal screen — needed for that closure to see the right
+variable.
+
+**Not yet confirmed on-device**: deployed and unit tests still pass
+(`node --test tests/*.test.mjs`, 11/11), but the user hasn't yet tried
+actually recording one-handed with it. Specifically worth checking next
+session if not already confirmed: does the 56px hit strip feel easy to
+find/use with a thumb while gripping the phone edge, and does the
+pause-guard above actually behave correctly on a real paused-then-resumed
+take (not just reasoned through).
+
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 
 These were explicitly scoped out as trade-offs or lower priority. Revisit if they cause real problems during device QA:
@@ -292,17 +341,18 @@ These were explicitly scoped out as trade-offs or lower priority. Revisit if the
 
 ## What's left (in priority order)
 
-As of the end of the Ninth Round (above):
+As of the end of the Tenth Round (above):
 
-1. **Confirm the custom Review-screen video controls** (play button centering, drag-to-seek progress bar) actually feel right on-device — deployed, not yet confirmed.
-2. **Have the user try the `hd` and `max` video quality profiles** (Setup screen, "Качество видео") and report, for each, what the ⓘ diagnostics panel's "файл" line says — specifically whether width < height (correct portrait) or width > height (recording sideways again, like the earlier `1080x1440` regression). Whichever profile(s) come back correct, consider making the best one the new default instead of `wide`.
-3. **Finish Task 13 — manual on-device QA generally.** Nearly everything from the original checklist has now been covered and confirmed through the rounds above. Treat the plan's Task 13 checklist as historical context at this point, not a literal TODO list to still execute fresh. Still worth deliberately re-checking:
+1. **Confirm the new one-handed side scrub rail** (Rehearsal + Recording screens) actually feels right on-device — deployed, not yet tried by the user. Specifically confirm the pause-guard behaves correctly on a real paused-then-resumed take.
+2. **Confirm the custom Review-screen video controls** (play button centering, drag-to-seek progress bar) actually feel right on-device — deployed, not yet confirmed.
+3. **Have the user try the `hd` and `max` video quality profiles** (Setup screen, "Качество видео") and report, for each, what the ⓘ diagnostics panel's "файл" line says — specifically whether width < height (correct portrait) or width > height (recording sideways again, like the earlier `1080x1440` regression). Whichever profile(s) come back correct, consider making the best one the new default instead of `wide`.
+4. **Finish Task 13 — manual on-device QA generally.** Nearly everything from the original checklist has now been covered and confirmed through the rounds above. Treat the plan's Task 13 checklist as historical context at this point, not a literal TODO list to still execute fresh. Still worth deliberately re-checking:
    - **Pause → resume → stop file integrity** — confirm audio/video stay in sync across a paused-and-resumed take, not just a continuous one.
    - A full end-to-end run with **no bugs at all**, now that individual pieces have each been fixed and confirmed separately across nine rounds — they haven't all been exercised together in one sitting yet.
-4. Decide what to do with the two untracked files at the repo root (`Screenshot 2026-09-17 133645.png` and `.agents/`, see the deferred-issues list above) — still unresolved, low priority.
-5. Consider the other deferred issues above if they turn out to matter in practice (camera stream re-acquisition latency on Retake, MediaRecorder-unsupported detection timing, the countdown screen replacing rather than overlaying the camera preview, `Recorder.canPause` being unreliable as a feature-detect).
-6. Once things are stable, consider removing the diagnostics ⓘ panel's visibility for end users (or gating it behind something less prominent) — it was built as a debugging aid, not a polished user-facing feature, even though the underlying logging is worth keeping permanently.
-7. If native video skip-forward/back (the 10-second buttons lost when native `<video controls>` was dropped in the Ninth Round) turns out to be missed, add custom equivalents next to `.play-toggle` — straightforward given the custom controls scaffolding already in place.
+5. Decide what to do with the two untracked files at the repo root (`Screenshot 2026-09-17 133645.png` and `.agents/`, see the deferred-issues list above) — still unresolved, low priority.
+6. Consider the other deferred issues above if they turn out to matter in practice (camera stream re-acquisition latency on Retake, MediaRecorder-unsupported detection timing, the countdown screen replacing rather than overlaying the camera preview, `Recorder.canPause` being unreliable as a feature-detect).
+7. Once things are stable, consider removing the diagnostics ⓘ panel's visibility for end users (or gating it behind something less prominent) — it was built as a debugging aid, not a polished user-facing feature, even though the underlying logging is worth keeping permanently.
+8. If native video skip-forward/back (the 10-second buttons lost when native `<video controls>` was dropped in the Ninth Round) turns out to be missed, add custom equivalents next to `.play-toggle` — straightforward given the custom controls scaffolding already in place.
 
 ## Quick start for a new session
 
