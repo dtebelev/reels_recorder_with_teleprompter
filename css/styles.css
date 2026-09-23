@@ -179,6 +179,25 @@ button.primary {
   will-change: transform;
 }
 
+/* One-handed scroll control: a tall touch strip down the right edge, so a
+   thumb can drag the teleprompter while the same hand holds the phone,
+   instead of having to reach up into the (top-only) text band to scrub it.
+   Wrapper is a wide invisible touch target (per the review progress-bar's
+   "real controls need more finger-room than the line looks like it needs"
+   lesson); the visible red line is just the thin track inside it. Sits
+   between the teleprompter band and the bottom controls so it never
+   overlaps either. */
+.scrub-rail {
+  position: absolute; top: calc(20vh + env(safe-area-inset-top, 0px) + 14px);
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px) + 96px);
+  right: 0; width: 56px; z-index: 15; touch-action: none;
+}
+.scrub-rail__track {
+  position: absolute; top: 0; bottom: 0; right: 18px; width: 6px;
+  border-radius: 3px; background: rgba(255, 90, 54, 0.85);
+  box-shadow: 0 0 6px rgba(255, 90, 54, 0.5);
+}
+
 .screen--review { position: relative; padding: 0; height: 100%; }
 #review-video {
   /* No more native <video controls>: its play/skip-10s buttons center

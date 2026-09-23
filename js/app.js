@@ -46,6 +46,33 @@ function releaseWakeLock() {
   }
 }
 
+/** Wires the one-handed side scrub rail (a tall strip along the right edge,
+ * present on both Rehearsal and Recording) to drive the same scrub behavior
+ * as dragging the teleprompter text itself — see js/teleprompter.js.
+ * `canAutoResume` guards against un-pausing a *paused recording* just
+ * because the user scrubbed the text while stopped — on Recording, pass
+ * `() => !paused` so a scrub while paused leaves it paused afterwards. */
+function attachScrubRail(tp, canAutoResume = () => true) {
+  const rail = document.getElementById('scrub-rail');
+  let startY = null;
+  rail.addEventListener('pointerdown', (e) => {
+    startY = e.clientY;
+    tp.beginScrub();
+    rail.setPointerCapture?.(e.pointerId);
+  });
+  rail.addEventListener('pointermove', (e) => {
+    if (startY === null) return;
+    tp.scrubBy(e.clientY - startY);
+  });
+  const endScrub = () => {
+    if (startY === null) return;
+    startY = null;
+    if (canAutoResume()) tp.endScrub();
+  };
+  rail.addEventListener('pointerup', endScrub);
+  rail.addEventListener('pointercancel', endScrub);
+}
+
 // The browser auto-releases the wake lock whenever the tab is hidden (e.g.
 // briefly during the native share sheet) and never re-acquires it on its
 // own — do that ourselves so a locked screen doesn't creep back in mid-flow.
@@ -148,6 +175,7 @@ async function renderRehearsal() {
     <div class="screen screen--camera">
       <video id="preview" autoplay playsinline muted></video>
       <div id="teleprompter-mount"></div>
+      <div id="scrub-rail" class="scrub-rail"><div class="scrub-rail__track"></div></div>
       <div class="controls">
         <button id="slower" class="speed-btn">Медленнее</button>
         <button id="record-btn" class="record-btn"></button>
@@ -169,6 +197,7 @@ async function renderRehearsal() {
 
   teleprompter = new Teleprompter(document.getElementById('teleprompter-mount'), settings);
   teleprompter.start(TELEPROMPTER_START_DELAY_MS);
+  attachScrubRail(teleprompter);
 
   document.getElementById('slower').addEventListener('click', () => {
     settings = saveSettings(undefined, { speedPxPerSec: clampSpeed(settings.speedPxPerSec - SPEED_STEP) });
@@ -230,6 +259,7 @@ function renderRecording() {
     <div class="screen screen--camera">
       <video id="preview" autoplay playsinline muted></video>
       <div id="teleprompter-mount"></div>
+      <div id="scrub-rail" class="scrub-rail"><div class="scrub-rail__track"></div></div>
       <div class="status-topright">
         <div class="timer" id="timer">00:00</div>
         <div class="paused-label" id="paused-label" hidden>ПАУЗА</div>
@@ -270,6 +300,7 @@ function renderRecording() {
 
   let paused = false;
   let stopping = false;
+  attachScrubRail(teleprompter, () => !paused);
   const pauseBtn = document.getElementById('pause-btn');
   if (!recorder.canPause) pauseBtn.disabled = true;
   const pausedLabel = document.getElementById('paused-label');

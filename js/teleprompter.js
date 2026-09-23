@@ -10,7 +10,7 @@ export class Teleprompter {
   #delayTimeoutId = null;
   #baseOffsetPx = 0; // allows resuming after a speed/pause change
   #dragStartY = null;
-  #dragStartOffsetPx = 0;
+  #scrubBaseOffsetPx = 0;
 
   constructor(container, { script, speedPxPerSec, fontSizePx }) {
     this.#container = container;
@@ -60,24 +60,42 @@ export class Teleprompter {
   #attachDragHandlers() {
     const el = this.#container;
     el.addEventListener('pointerdown', (e) => {
-      this.stop(); // freeze auto-scroll and any pending start delay
       this.#dragStartY = e.clientY;
-      this.#dragStartOffsetPx = this.#baseOffsetPx;
+      this.beginScrub();
       el.setPointerCapture?.(e.pointerId);
     });
     el.addEventListener('pointermove', (e) => {
       if (this.#dragStartY === null) return;
-      const draggedDownPx = e.clientY - this.#dragStartY;
       // Dragging a finger down reveals earlier text, like a normal scroll.
-      this.#setOffsetPx(this.#dragStartOffsetPx - draggedDownPx);
+      this.scrubBy(e.clientY - this.#dragStartY);
     });
     const endDrag = () => {
       if (this.#dragStartY === null) return;
       this.#dragStartY = null;
-      this.start(); // resume auto-scroll from wherever the user left it
+      this.endScrub();
     };
     el.addEventListener('pointerup', endDrag);
     el.addEventListener('pointercancel', endDrag);
+  }
+
+  /** Freezes auto-scroll and remembers where a scrub gesture started from.
+   * Public so an external control (e.g. a one-handed side scrub rail) can
+   * drive the same scrub behavior as the built-in drag-on-the-text one. */
+  beginScrub() {
+    this.stop(); // freeze auto-scroll and any pending start delay
+    this.#scrubBaseOffsetPx = this.#baseOffsetPx;
+  }
+
+  /** Moves the text by `draggedDownPx` relative to the position at the last
+   * beginScrub() call — positive values (finger/thumb moving down) reveal
+   * earlier text, like a normal scroll. */
+  scrubBy(draggedDownPx) {
+    this.#setOffsetPx(this.#scrubBaseOffsetPx - draggedDownPx);
+  }
+
+  /** Resumes auto-scroll from wherever the scrub gesture left the text. */
+  endScrub() {
+    this.start();
   }
 
   #beginScrolling() {
