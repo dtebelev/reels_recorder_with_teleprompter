@@ -99,6 +99,17 @@ function renderSetup() {
   app.innerHTML = `
     <div class="screen screen--setup">
       <h1>Сценарий</h1>
+      <div class="tools">
+        <button type="button" id="paste-btn" class="tool tool--paste">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>
+          <span>Вставить</span>
+        </button>
+        <button type="button" id="clear-btn" class="tool tool--clear">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+          <span>Очистить</span>
+          <i class="tool__bar"></i>
+        </button>
+      </div>
       <textarea id="script" placeholder="Вставьте текст, который будете читать...">${escapeHtml(settings.script)}</textarea>
       <label>
         Скорость: <span id="speed-value">${settings.speedPxPerSec}</span> px/с
@@ -144,6 +155,67 @@ function renderSetup() {
   const scriptEl = document.getElementById('script');
   scriptEl.addEventListener('input', () => {
     settings = saveSettings(undefined, { script: scriptEl.value });
+    endUndo();
+  });
+
+  const pasteBtn = document.getElementById('paste-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const clearLabel = clearBtn.querySelector('span');
+  const clearIcon = clearBtn.querySelector('svg');
+  const CLEAR_ICON = clearIcon.innerHTML;
+  const UNDO_ICON = '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>';
+  const UNDO_WINDOW_MS = 4000;
+  let undoText = null; // non-null while the "Отменить" window is open
+  let undoTimer = null;
+
+  // Puts the button back to "Очистить" and forgets the saved text.
+  function endUndo() {
+    clearTimeout(undoTimer);
+    undoText = null;
+    clearBtn.classList.remove('tool--undo');
+    clearLabel.textContent = 'Очистить';
+    clearIcon.innerHTML = CLEAR_ICON;
+  }
+
+  function setScript(text) {
+    scriptEl.value = text;
+    settings = saveSettings(undefined, { script: text });
+  }
+
+  clearBtn.addEventListener('click', () => {
+    if (undoText !== null) {
+      setScript(undoText);
+      endUndo();
+      return;
+    }
+    if (!scriptEl.value) return;
+    undoText = scriptEl.value;
+    setScript('');
+    clearBtn.classList.add('tool--undo');
+    clearLabel.textContent = 'Отменить';
+    clearIcon.innerHTML = UNDO_ICON;
+    // Restart the shrinking progress bar (CSS animation) for this window.
+    clearBtn.style.setProperty('--undo-ms', `${UNDO_WINDOW_MS}ms`);
+    const bar = clearBtn.querySelector('.tool__bar');
+    bar.style.animation = 'none';
+    void bar.offsetWidth;
+    bar.style.animation = '';
+    undoTimer = setTimeout(endUndo, UNDO_WINDOW_MS);
+  });
+
+  pasteBtn.addEventListener('click', async () => {
+    const label = pasteBtn.querySelector('span');
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) throw new Error('empty');
+      endUndo();
+      setScript(text);
+      scriptEl.scrollTop = 0;
+    } catch {
+      // iOS may deny clipboard access or the clipboard may be empty.
+      label.textContent = 'Буфер пуст';
+      setTimeout(() => { label.textContent = 'Вставить'; }, 1800);
+    }
   });
 
   document.getElementById('speed-down').addEventListener('click', () => {

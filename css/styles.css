@@ -32,6 +32,31 @@ button, a, [role="button"] { cursor: pointer; touch-action: manipulation; }
   background: #1a1a1c; color: #fff; border: 1px solid #333; border-radius: 8px;
 }
 .screen--setup label { display: block; margin-top: 16px; }
+/* Paste / Clear pills above the script field. Scoped under ".tools" (two
+   classes) so they beat any plain "button" rules — see specificity note below. */
+.tools { display: flex; justify-content: space-between; margin-bottom: 10px; }
+.tools .tool {
+  position: relative; overflow: hidden;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 16px; border-radius: 999px;
+  background: #1a1a1c; border: 1px solid #333; color: #c9c9d0;
+  font: inherit; font-size: 13px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  transition: transform 0.12s ease;
+}
+.tools .tool:active { transform: scale(0.95); }
+.tools .tool svg {
+  width: 16px; height: 16px; stroke: currentColor; fill: none;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+.tools .tool--paste { border-color: #ff5a36; color: #ff5a36; }
+.tools .tool--clear.tool--undo { background: #ff5a36; border-color: #ff5a36; color: #fff; }
+.tools .tool__bar {
+  display: none; position: absolute; left: 0; bottom: 0; height: 3px; width: 100%;
+  background: #fff; opacity: 0.85; transform-origin: left;
+}
+.tools .tool--undo .tool__bar { display: block; animation: undo-shrink var(--undo-ms, 4000ms) linear forwards; }
+@keyframes undo-shrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 .row { display: flex; gap: 8px; margin-top: 6px; }
 .row button {
   flex: 1; padding: 12px; font-size: 20px; background: #1a1a1c; color: #fff;
