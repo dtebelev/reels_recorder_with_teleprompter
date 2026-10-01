@@ -12,8 +12,47 @@ review the take and choose Keep (download) or Retake.
 
 Key docs (read these first, in order):
 1. `docs/superpowers/specs/2026-09-17-reels-teleprompter-design.md` — the design spec, includes a "Research: avoiding the reading look" section explaining WHY the teleprompter is laid out the way it is (narrow band near the camera, short lines, fixed read-line marker). Don't undo this layout without re-reading that reasoning.
-2. `docs/plans/2026-09-17-reels-teleprompter-implementation.md` — the 13-task implementation plan. Tasks 1-12 are done; Task 13 (manual on-device QA) is NOT done.
+2. `docs/plans/2026-09-17-reels-teleprompter-implementation.md` — the 13-task implementation plan. Tasks 1-12 are done. Task 13 (on-device QA) was closed by the user on 2026-10-01: they checked the app and reported that everything works.
 3. This file.
+
+## Start here (2026-10-01)
+
+The sections below this one are the historical build and QA log. Read
+this block before the older "not yet confirmed" notes. Those notes are
+superseded.
+
+**User confirmation, same day, after the manual was delivered.** The
+user checked the app and said everything works («Проверено, все
+работает»). Treat the current behavior as accepted on device:
+
+- Paste, Clear, and the 4-second Undo (Eleventh Round, commit `3b2832c`).
+- The one-handed scrub rail and its pause guard (Tenth Round).
+- Review playback controls, and the `hd` / `max` quality profiles.
+- The rest of the recording flow that Task 13 was still holding open
+  (pause, resume, stop, a full take).
+
+That confirmation is the user's report. This session did not re-run
+`node --test` and did not watch the phone. No new bug was filed.
+
+Still not done, and not part of that confirmation:
+
+- Nothing from the Twelfth Round is committed or deployed: the
+  rewritten `docs/Reels-Teleprompter-User-Manual-RU.pdf`,
+  `tools/build-user-manual.py`, and this handoff edit are local only.
+- No unit test covers paste, clear, or undo.
+- The deferred trade-offs in "Known deferred issues" were not changed.
+  The user did not ask for them. Leave them unless a new complaint
+  names one.
+
+Older rounds, for context:
+
+1. **2026-09-29 — app change, already committed.** Commit `3b2832c`
+   added Paste and Clear. Details in "Eleventh round" below. The
+   "not confirmed on a phone" line there is obsolete.
+2. **2026-10-01 — documentation only.** The Russian user manual PDF
+   was rewritten in place. No application code changed. Details in
+   "Twelfth round" below. The "on-device checks still open" line
+   there is obsolete.
 
 ## Status: on-device QA in progress (started 2026-09-17)
 
@@ -112,6 +151,7 @@ js/diagnostics.js     in-app event log, surfaced via the Review screen's ⓘ chi
 js/app.js             screen orchestration: Setup -> Rehearsal -> Countdown -> Recording -> Review
 manifest.json / sw.js / icons/*.png    PWA installability, installable to home screen; icons are real (see tools/make-icons.py), not placeholders
 tools/make-icons.py   regenerates icons/*.png from code (Pillow) — edit the concept function and rerun rather than hand-editing PNGs
+tools/build-user-manual.py   regenerates docs/Reels-Teleprompter-User-Manual-RU.pdf (reportlab, Windows Segoe UI). Added 2026-10-01; see the Twelfth Round.
 tests/*.test.mjs      plain node:test unit tests for state/mime/scroll (11 tests, run: node --test tests/*.test.mjs)
 ```
 
@@ -321,13 +361,117 @@ false` is declared, not immediately after building the Teleprompter like
 on the Rehearsal screen — needed for that closure to see the right
 variable.
 
-**Not yet confirmed on-device**: deployed and unit tests still pass
-(`node --test tests/*.test.mjs`, 11/11), but the user hasn't yet tried
-actually recording one-handed with it. Specifically worth checking next
-session if not already confirmed: does the 56px hit strip feel easy to
-find/use with a thumb while gripping the phone edge, and does the
-pause-guard above actually behave correctly on a real paused-then-resumed
-take (not just reasoned through).
+**On-device:** left unconfirmed when this round was written. Superseded
+on 2026-10-01, when the user checked the app and said everything works.
+Do not re-open the scrub rail or its pause guard unless a new report
+says otherwise.
+
+## Eleventh round: Paste and Clear above the script (2026-09-29)
+
+Committed as `3b2832c` ("Add Paste and Clear (with in-place Undo)
+buttons above the script field") **before** the 2026-10-01 manual
+session. That commit was not described in this file until the Twelfth
+Round wrote it up. No further app change has been made since.
+
+**What the commit changed** (`css/styles.css`, `js/app.js`, `sw.js` only):
+
+- Setup, directly under the «Сценарий» heading and above the textarea:
+  two pills, `.tools .tool`.
+- **Вставить** (`#paste-btn`, orange outline). `navigator.clipboard.readText()`.
+  On success it **replaces** the whole script (it does not append),
+  saves via `saveSettings`, scrolls the field to the top, and cancels
+  any open Undo. Empty clipboard or a rejected read (iOS often denies
+  it) does not change the field; the label flips to «Буфер пуст» for
+  1800ms, then back to «Вставить».
+- **Очистить** (`#clear-btn`). No-op when the field is already empty.
+  Otherwise it remembers the current text, clears and saves, and for
+  `UNDO_WINDOW_MS` (4000) the same button becomes orange **Отменить**
+  (class `tool--undo`, undo icon, a CSS bar that shrinks via
+  `--undo-ms`). A second click inside that window restores the saved
+  text and closes Undo. When the window ends, the saved text is
+  forgotten. **Typing in the field or a successful Paste also calls
+  `endUndo()`**, which drops the saved text even if the 4 seconds
+  have not elapsed.
+- `sw.js` `CACHE_NAME` is now `reels-teleprompter-v16`.
+
+**Still true about the code, not about QA:**
+
+- No new unit test. `tests/*.test.mjs` was not extended for paste,
+  clear, or undo.
+- On 2026-10-01 the user checked the app and said everything works,
+  so the phone check this section used to call open is closed. There
+  is still no separate note of the «Буфер пуст» flash or of the exact
+  4-second window; do not treat that missing detail as a failure.
+- `saveSettings` still swallows `localStorage` quota errors and keeps
+  the in-memory value for the session only. There is no `maxlength`
+  on the textarea. A huge paste is accepted; it is not guaranteed to
+  still be there after a reload if the browser quota is exceeded.
+
+## Twelfth round: user manual rewritten (2026-10-01)
+
+Documentation only. The user asked for the Russian user-manual PDF to
+be rewritten from scratch, including every product change since the
+previous PDF, and for three facts to be stated in it: the teleprompter
+does not start moving immediately; script text may be any length; a
+recording's length is limited only by free space on the phone.
+
+**Done:**
+
+- Replaced `docs/Reels-Teleprompter-User-Manual-RU.pdf` (the previous
+  file was the 12-page manual from commit `27fc80e`, 2026-09-23, which
+  stopped at the Tenth Round scrub rail and had no Paste/Clear).
+- The new file is 13 A4 pages, Russian, same path and same role.
+  Cover, contents, nine chapters: about, home-screen install, script
+  (Paste / Clear / Undo), rehearsal, countdown, recording, review,
+  shooting tips, troubleshooting.
+- Generator: `tools/build-user-manual.py`. Rebuild with
+  `python tools/build-user-manual.py` from the repo root. It needs
+  reportlab and the Windows Segoe UI files under `C:\Windows\Fonts`
+  (`segoeui.ttf`, `segoeuib.ttf`, `segoeuil.ttf`, `segoeuii.ttf`, and
+  semibold `seguisb.ttf` or `segoeuisb.ttf`). It will not run as-is on
+  a machine without those fonts. Visual check was done by rendering
+  the pages and reading them; one real overlap (chapter 8 lede drawn
+  through the first row of cards) was fixed before the file was left
+  in place.
+- Facts the manual now states, matched to the code as of `3b2832c`:
+  - Scroll starts only after `TELEPROMPTER_START_DELAY_MS` (6000) on
+    both Rehearsal and Recording. Said in chapters 1, 4, and 6.
+  - The script field has no length limit. Paste replaces the field
+    with whatever is on the clipboard. Said in chapter 3 and the tips.
+  - Nothing in the app stops a recording at 15/30/60 seconds. Stop is
+    manual. The manual says the only limit is free phone memory.
+  - Also corrected versus the old PDF: default speed is 30 px/s
+    (range 10–120, step 1), default font is 28 px (range 16–72),
+    the iPhone home-screen title suggested by the page is «Суфлёр»
+    (`apple-mobile-web-app-title`), the Android short name is
+    Teleprompter, preview is mirrored and the saved file is not.
+- `docs/HANDOFF.md` updated in the same session (this section and
+  "Start here") so the Eleventh Round was not left only in git history.
+
+**Not done. Do not assume any of this happened:**
+
+- No edit to `js/`, `css/`, `index.html`, `sw.js`, tests, or the
+  design spec. App behavior is unchanged from `3b2832c`.
+- `node --test tests/*.test.mjs` was not run. Nothing in the test
+  surface changed.
+- No git commit, no push, no Vercel deploy. The rewritten PDF, the
+  generator, and this handoff edit are local working-tree changes
+  until someone commits them.
+- The user did not separately proofread the PDF page by page. Later
+  the same day they checked the app and said everything works. That
+  closes the product QA, not a line-edit of the manual.
+- The sentence "text can be any size" is what the user required and
+  what the UI does (no maxlength). It is not a promise that
+  `localStorage` will persist an arbitrarily large script. Do not
+  add a limit to the manual unless the user asks; do not treat a
+  quota failure as a new bug the manual forgot.
+- The sentence "video length is limited only by phone memory" matches
+  the absence of a duration cap in `js/recorder.js` / `js/app.js`.
+  The user has accepted current recording behavior. Do not start a
+  new investigation into very long takes unless they report one.
+- The Tenth Round on-device list (scrub rail, Review controls,
+  `hd` / `max`, pause-resume) was closed by that same "everything
+  works" report. See "Start here".
 
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 
@@ -341,18 +485,25 @@ These were explicitly scoped out as trade-offs or lower priority. Revisit if the
 
 ## What's left (in priority order)
 
-As of the end of the Tenth Round (above):
+As of the user's check on 2026-10-01 («Проверено, все работает»).
+On-device QA, including Task 13, Paste/Clear, the scrub rail, Review
+controls, and the `hd` / `max` profiles, is closed. Do not re-test
+those unless the user reports a new problem.
 
-1. **Confirm the new one-handed side scrub rail** (Rehearsal + Recording screens) actually feels right on-device — deployed, not yet tried by the user. Specifically confirm the pause-guard behaves correctly on a real paused-then-resumed take.
-2. **Confirm the custom Review-screen video controls** (play button centering, drag-to-seek progress bar) actually feel right on-device — deployed, not yet confirmed.
-3. **Have the user try the `hd` and `max` video quality profiles** (Setup screen, "Качество видео") and report, for each, what the ⓘ diagnostics panel's "файл" line says — specifically whether width < height (correct portrait) or width > height (recording sideways again, like the earlier `1080x1440` regression). Whichever profile(s) come back correct, consider making the best one the new default instead of `wide`.
-4. **Finish Task 13 — manual on-device QA generally.** Nearly everything from the original checklist has now been covered and confirmed through the rounds above. Treat the plan's Task 13 checklist as historical context at this point, not a literal TODO list to still execute fresh. Still worth deliberately re-checking:
-   - **Pause → resume → stop file integrity** — confirm audio/video stay in sync across a paused-and-resumed take, not just a continuous one.
-   - A full end-to-end run with **no bugs at all**, now that individual pieces have each been fixed and confirmed separately across nine rounds — they haven't all been exercised together in one sitting yet.
-5. Decide what to do with the two untracked files at the repo root (`Screenshot 2026-09-17 133645.png` and `.agents/`, see the deferred-issues list above) — still unresolved, low priority.
-6. Consider the other deferred issues above if they turn out to matter in practice (camera stream re-acquisition latency on Retake, MediaRecorder-unsupported detection timing, the countdown screen replacing rather than overlaying the camera preview, `Recorder.canPause` being unreliable as a feature-detect).
-7. Once things are stable, consider removing the diagnostics ⓘ panel's visibility for end users (or gating it behind something less prominent) — it was built as a debugging aid, not a polished user-facing feature, even though the underlying logging is worth keeping permanently.
-8. If native video skip-forward/back (the 10-second buttons lost when native `<video controls>` was dropped in the Ninth Round) turns out to be missed, add custom equivalents next to `.play-toggle` — straightforward given the custom controls scaffolding already in place.
+Still open, and not claimed as done:
+
+1. **Commit and, if the user wants it live, deploy** the rewritten
+   manual, `tools/build-user-manual.py`, and the handoff edits from
+   2026-10-01. None of that has been committed. The app code itself
+   is already at `3b2832c`.
+2. Decide what to do with the untracked files at the repo root
+   (`Screenshot 2026-09-17 133645.png` and `.agents/`, see the
+   deferred-issues list) — still unresolved, low priority.
+3. The deferred trade-offs in "Known deferred issues" stay deferred.
+   The user accepted the app as it is. Do not implement them unasked.
+4. Optional, only if the user asks: hide or gate the diagnostics ⓘ
+   panel, and add skip-forward/back on Review. Both were ideas, not
+   bugs. The current Review controls are accepted.
 
 ## Quick start for a new session
 
