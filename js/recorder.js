@@ -13,6 +13,9 @@ export class Recorder {
   #chunks = [];
   #mimeType = null;
   #bytes = 0;
+  #stopRequested = false;
+  #resolveStopped = () => {};
+  #stopped = new Promise((resolve) => { this.#resolveStopped = resolve; });
 
   constructor(stream) {
     this.#mimeType = pickSupportedMimeType(
@@ -33,6 +36,15 @@ export class Recorder {
     };
     this.#mediaRecorder.onerror = (e) => {
       logEvent('ОШИБКА РЕКОРДЕРА', e?.error?.name ?? e?.error ?? 'неизвестно');
+    };
+    // Registered up front, not inside stop(): iOS can stop the recorder on
+    // its own (camera interrupted, track ended) long before the user taps
+    // Стоп, and that `stop` event would otherwise be missed — leaving stop()
+    // waiting forever on an event that already happened.
+    this.#mediaRecorder.onstop = () => {
+      if (!this.#stopRequested) logEvent('РЕКОРДЕР ОСТАНОВИЛСЯ САМ');
+      logEvent('запись остановлена', `${this.#chunks.length} фрагментов, ${Math.round(this.#bytes / 1024)} КБ`);
+      this.#resolveStopped();
     };
   }
 
@@ -71,23 +83,42 @@ export class Recorder {
   }
 
   pause() {
+    if (this.#mediaRecorder.state !== 'recording') return;
     this.#mediaRecorder.pause();
     logEvent('пауза');
   }
 
   resume() {
+    if (this.#mediaRecorder.state !== 'paused') return;
     this.#mediaRecorder.resume();
     logEvent('продолжение');
   }
 
-  /** Resolves with the recorded Blob once the recorder has flushed. */
-  stop() {
-    return new Promise((resolve) => {
-      this.#mediaRecorder.onstop = () => {
-        logEvent('запись остановлена', `${this.#chunks.length} фрагментов, ${Math.round(this.#bytes / 1024)} КБ`);
-        resolve(new Blob(this.#chunks, { type: this.#mimeType }));
-      };
-      this.#mediaRecorder.stop();
-    });
+  /** Resolves with the recorded Blob once the recorder has flushed, or —
+   * if it never confirms within `timeoutMs` — with whatever chunks arrived
+   * so far (the 1s timeslice means that's nearly the whole take). Resolves
+   * with null only when nothing at all was recorded. */
+  async stop(timeoutMs) {
+    this.#stopRequested = true;
+    if (this.#mediaRecorder.state !== 'inactive') {
+      try {
+        this.#mediaRecorder.stop();
+      } catch (err) {
+        logEvent('ошибка stop()', err?.name ?? err);
+      }
+    } else {
+      logEvent('рекордер уже был остановлен');
+    }
+    let timer;
+    const timedOut = await Promise.race([
+      this.#stopped.then(() => false),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(true), timeoutMs); }),
+    ]);
+    clearTimeout(timer);
+    if (timedOut) {
+      logEvent('stop не подтвердился', `беру ${this.#chunks.length} фрагментов, ${Math.round(this.#bytes / 1024)} КБ`);
+    }
+    if (this.#chunks.length === 0) return null;
+    return new Blob(this.#chunks, { type: this.#mimeType });
   }
 }

@@ -93,7 +93,7 @@ const MIN_FONT_SIZE_PX = 16;
 const MAX_FONT_SIZE_PX = 72;
 
 const TELEPROMPTER_START_DELAY_MS = 6000; // time to get ready before the script starts scrolling
-const RECORDER_STOP_TIMEOUT_MS = 8000; // safety net if MediaRecorder.stop() never resolves
+const RECORDER_STOP_TIMEOUT_MS = 15000; // after this, keep whatever chunks arrived instead of waiting on stop()
 
 function renderSetup() {
   app.innerHTML = `
@@ -305,11 +305,15 @@ function renderCameraError(err) {
   document.getElementById('retry-btn').addEventListener('click', renderRehearsal);
 }
 
-function renderRecorderError(err) {
+function renderRecorderError(title, err) {
+  logEvent('ошибка', err?.message ?? String(err));
+  // The diagnostics log is the only window into what the recorder did on a
+  // phone with no console, so show it right here rather than only on Review.
   app.innerHTML = `
     <div class="screen screen--error">
-      <p>Запись видео не поддерживается в этом браузере.</p>
+      <p>${escapeHtml(title)}</p>
       <p class="error-detail">${escapeHtml(err?.message ?? String(err))}</p>
+      <pre class="error-log">${escapeHtml(getReport())}</pre>
       <button id="back-to-setup-btn" class="primary">← Настройки</button>
     </div>
   `;
@@ -363,7 +367,7 @@ function renderRecording() {
     stopStream(cameraStream);
     cameraStream = null;
     recorder = null;
-    renderRecorderError(err);
+    renderRecorderError('Запись видео не поддерживается в этом браузере.', err);
     return;
   }
   elapsedBeforePauseMs = 0;
@@ -410,17 +414,17 @@ function renderRecording() {
     teleprompter.stop();
     elapsedBeforePauseMs = recordedElapsedMs();
     recordingStartTime = null;
-    recordedBlob = await withTimeout(recorder.stop(), RECORDER_STOP_TIMEOUT_MS).catch(() => null);
+    recordedBlob = await recorder.stop(RECORDER_STOP_TIMEOUT_MS);
     if (recordedBlob) {
       logEvent('файл', await probeBlob(recordedBlob));
     }
     if (!recordedBlob) {
-      // recorder.stop() never resolved (or genuinely failed) — don't leave
-      // the person stuck on a dead screen forever.
+      // Not a single chunk of data arrived — don't leave the person stuck
+      // on a dead screen forever.
       releaseWakeLock();
       stopStream(cameraStream);
       cameraStream = null;
-      renderRecorderError(new Error('Не удалось завершить запись — попробуйте ещё раз.'));
+      renderRecorderError('Не удалось сохранить запись.', new Error('Камера не передала ни одного фрагмента видео — попробуйте ещё раз.'));
       return;
     }
     renderReview();
@@ -538,18 +542,6 @@ function setupCustomVideoControls(video) {
   const endDrag = () => { dragging = false; };
   bar.addEventListener('pointerup', endDrag);
   bar.addEventListener('pointercancel', endDrag);
-}
-
-/** Rejects if `promise` hasn't settled within `ms`, so a hung MediaRecorder
- * can't strand the user on the Recording screen forever. */
-function withTimeout(promise, ms) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timed out')), ms);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (err) => { clearTimeout(timer); reject(err); },
-    );
-  });
 }
 
 /** Recorded duration in ms: finished segments plus the segment in progress. */

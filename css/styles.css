@@ -179,6 +179,14 @@ button.primary {
 }
 
 .screen--error { display: flex; flex-direction: column; gap: 16px; justify-content: center; align-items: center; text-align: center; }
+.error-log {
+  align-self: stretch; max-height: 35vh; overflow: auto; margin: 0;
+  padding: 12px 14px; border-radius: 14px; text-align: left;
+  background: rgba(255,255,255,0.06); color: #cfcfcf;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.45; white-space: pre-wrap;
+  -webkit-user-select: text; user-select: text;
+}
 
 .teleprompter {
   /* Gradient still starts at the very top (covering the notch area so it

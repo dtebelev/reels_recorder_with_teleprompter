@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = 'reels-teleprompter-v16';
+const CACHE_NAME = 'reels-teleprompter-v17';
 const SHELL_FILES = [
   './',
   './index.html',
