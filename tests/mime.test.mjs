@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pickSupportedMimeType, MIME_CANDIDATES } from '../js/mime.js';
+import { pickSupportedMimeType, listSupportedMimeTypes, MIME_CANDIDATES } from '../js/mime.js';
 
 test('picks the first candidate the browser supports', () => {
   const isSupported = (type) => type === 'video/webm;codecs=vp9,opus';
@@ -14,4 +14,9 @@ test('falls back through the candidate list in order', () => {
 
 test('returns null when nothing is supported', () => {
   assert.equal(pickSupportedMimeType(() => false), null);
+});
+
+test('lists every supported candidate in preference order', () => {
+  const isSupported = (type) => type.startsWith('video/mp4') || type === 'video/webm';
+  assert.deepEqual(listSupportedMimeTypes(isSupported), [MIME_CANDIDATES[0], MIME_CANDIDATES[1], 'video/webm']);
 });
