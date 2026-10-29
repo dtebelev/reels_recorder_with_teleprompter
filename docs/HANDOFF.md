@@ -15,13 +15,23 @@ Key docs (read these first, in order):
 2. `docs/plans/2026-09-17-reels-teleprompter-implementation.md` — the 13-task implementation plan. Tasks 1-12 are done. Task 13 (on-device QA) was closed by the user on 2026-10-01: they checked the app and reported that everything works.
 3. This file.
 
-## Start here (2026-10-01)
+## Start here (2026-10-28)
 
 The sections below this one are the historical build and QA log. Read
-this block before the older "not yet confirmed" notes. Those notes are
-superseded.
+this block first; older "not yet confirmed" notes are superseded.
 
-**User confirmation, same day, after the manual was delivered.** The
+**Latest: Thirteenth Round (2026-10-28), recording stalled on iPhone,
+now working again.** Takes stopped saving: MediaRecorder reported
+`recording` but produced zero bytes whenever the microphone was in the
+stream. The recorder now sets a `play-and-record` audio session,
+self-heals a stalled start (Web Audio mic, then video-only), keeps
+partial takes, and the service worker is network-first. The user
+confirmed takes record correctly in **both Safari and Chrome on
+iPhone** (commits `00bf1bb` → `585e296`). The root cause is **not
+proven** — see "Thirteenth round" below before touching
+`js/recorder.js`.
+
+**2026-10-01, after the manual was delivered.** The
 user checked the app and said everything works («Проверено, все
 работает»). Treat the current behavior as accepted on device:
 
@@ -36,9 +46,8 @@ That confirmation is the user's report. This session did not re-run
 
 Still not done, and not part of that confirmation:
 
-- Nothing from the Twelfth Round is committed or deployed: the
-  rewritten `docs/Reels-Teleprompter-User-Manual-RU.pdf`,
-  `tools/build-user-manual.py`, and this handoff edit are local only.
+- (Obsolete: the Twelfth Round manual, generator and handoff edit were
+  committed in `6c6d511`.)
 - No unit test covers paste, clear, or undo.
 - The deferred trade-offs in "Known deferred issues" were not changed.
   The user did not ask for them. Leave them unless a new complaint
@@ -101,6 +110,14 @@ restart). The project is now on GitHub and deployed to Vercel instead:
   files at the repo root are gitignored — they're local tooling/scratch
   files, not app code, and shouldn't be pushed.
 
+**Since 2026-10-28 the service worker is network-first** (`sw.js`
+fetch handler; the cache is only the offline fallback). Before that it
+was cache-first, so a deploy reached the phone **one launch late** —
+one Thirteenth Round test silently ran the previous build. If a device
+log ever looks like older code, check `CACHE_NAME` / log lines first.
+Phones that still had a cache-first worker installed needed one extra
+open-close to switch over; that should not recur.
+
 If you ever do need the old tunnel approach again (e.g. no internet
 access to push): `npx --yes serve . -l 3000` +
 `npx --yes localtunnel --port 3000` as separate standalone background
@@ -145,7 +162,7 @@ js/state.js         settings persistence (localStorage, DI'd, try/catch degrade-
 js/mime.js           MediaRecorder mime-type picker (mp4 -> webm fallback)
 js/scroll.js          pure scroll-offset math + speed clamping
 js/camera.js         getUserMedia wrapper (front camera + mic) + QUALITY_PROFILES
-js/recorder.js        MediaRecorder wrapper (start/pause/resume/stop -> Blob) + diagnostics logging
+js/recorder.js        MediaRecorder wrapper (start/pause/resume/stop -> Blob), stall self-healing, primeAudio(), diagnostics logging — see the Thirteenth Round
 js/teleprompter.js    RAF-driven scrolling text overlay, eye-contact layout, drag-to-scrub
 js/diagnostics.js     in-app event log, surfaced via the Review screen's ⓘ chip — a permanent debugging aid, not temporary
 js/app.js             screen orchestration: Setup -> Rehearsal -> Countdown -> Recording -> Review
@@ -473,6 +490,90 @@ recording's length is limited only by free space on the phone.
   `hd` / `max`, pause-resume) was closed by that same "everything
   works" report. See "Start here".
 
+## Thirteenth round: iPhone takes stopped saving (2026-10-28)
+
+**Report.** After Stop the app showed «Запись видео не поддерживается в
+этом браузере» + «Не удалось завершить запись — попробуйте ещё раз»,
+and no video was kept. Nothing in the recording code had changed since
+September, when the same device recorded fine.
+
+**What the on-device logs showed (in order):**
+
+1. The heading was simply wrong for this path: `renderRecorderError()`
+   was reused for a stop that never confirmed. The real event was
+   `MediaRecorder.stop()` not firing `stop` within 8s, after which the
+   whole take was thrown away.
+2. With better logging: `запись начата`, then **zero chunks**, no
+   `error`, no `stop`, for the entire take. Video 480x640 live, mic
+   `live`, neither track `muted`.
+3. Cycling every supported format (mp4 with codecs, bare mp4, webm
+   vp9/vp8, bare webm) all stalled identically. A **video-only**
+   recorder produced data immediately (480x640, full length). So the
+   stall was tied to having an audio track, not to the format.
+4. A freshly re-requested mic track (`getUserMedia({audio:true})`,
+   swapped into the stream) stalled exactly the same.
+5. Next build set `navigator.audioSession.type = 'play-and-record'` on
+   the record tap. ~1 hour later the first attempt recorded with sound
+   (first chunk at 2.1s, 23.6s file), then the user confirmed both
+   Safari and Chrome on iPhone work.
+
+**Root cause: NOT established.** Between the failing and the working
+take, three things changed at once: the audio-session build, about an
+hour passed, and the first good log was from Chrome rather than Safari.
+It may have been a transient iOS mic/audio-session state that cleared
+by itself. Do not write "fixed by audioSession" anywhere as fact. The
+user's own native Camera app recorded sound during the outage; no
+Bluetooth device was connected. A web search found no confirmed iOS
+bug matching this.
+
+**What is in the code now (`js/recorder.js`, `js/app.js`, `sw.js`):**
+
+- `primeAudio()` — called inside the record button's tap (iOS requires
+  a gesture). Sets the `play-and-record` audio session where the API
+  exists and creates/resumes a shared `AudioContext`. Logged as
+  `аудиосессия: …`.
+- `stop` listener registered at recorder creation (iOS can stop the
+  recorder on its own; that event used to be missed). `stop(timeoutMs)`
+  resolves with collected chunks if confirmation never arrives
+  (`RECORDER_STOP_TIMEOUT_MS` = 15000); null only when there are zero
+  chunks.
+- **Stall self-healing:** if no data within `STALL_TIMEOUT_MS` (3000),
+  the dead recorder is replaced. `AUDIO_ATTEMPTS = ['original',
+  'webaudio', 'none']`: second attempt feeds the mic through
+  `createMediaStreamSource → createMediaStreamDestination` and logs the
+  mic's peak level (`уровень микрофона`); last resort records
+  video-only (`ПИШУ БЕЗ ЗВУКА`). Format is never changed — step 3
+  showed it does not matter. The take starts up to ~6s late in the
+  worst case; the on-screen timer does not account for that.
+- Pause/resume are no-ops when the recorder is in the wrong state.
+- Logs now include each track's starting `readyState`/`muted`/label and
+  `первый фрагмент`.
+- Error screen takes a title; stop failure reads «Не удалось сохранить
+  запись.» and the **diagnostics log is shown on the error screen**
+  itself (`.error-log`), not only behind ⓘ on Review.
+- `sw.js` network-first (see "How to test on a real device"); cache
+  `reels-teleprompter-v21`.
+
+**Verification actually done:** `node --test` (11 pass); the stop and
+stall logic driven in Node with fake MediaRecorders (normal stop,
+self-stopped recorder, hung stop, audio-stall → fallback); real
+desktop Chrome with a canvas+oscillator stream (no webcam on this PC),
+including a forced first-recorder stall → Web Audio path produced a
+file with decoded audio. **Not verified on a phone:** the Web Audio and
+video-only fallbacks — on the working day the first attempt succeeded,
+so neither ran on iOS.
+
+**If it comes back:** ask for the log. `пробую звук через Web Audio` +
+`первый фрагмент` means the Web Audio path rescued it; `ПИШУ БЕЗ
+ЗВУКА` means it did not and the next step is recording audio separately
+or another audio-session experiment. `уровень микрофона: ТИШИНА (0)`
+means no sound reaches the page at all.
+
+**Stale elsewhere:** the user manual (`tools/build-user-manual.py`,
+troubleshooting text near the «Не удалось завершить запись» mention)
+still describes the old error wording and does not mention the
+automatic fallbacks. Not regenerated — the user did not ask.
+
 ## Known deferred issues (found in final review, deliberately NOT fixed — see conversation/commit 6396bce for what WAS fixed)
 
 These were explicitly scoped out as trade-offs or lower priority. Revisit if they cause real problems during device QA:
@@ -492,16 +593,17 @@ those unless the user reports a new problem.
 
 Still open, and not claimed as done:
 
-1. **Commit and, if the user wants it live, deploy** the rewritten
-   manual, `tools/build-user-manual.py`, and the handoff edits from
-   2026-10-01. None of that has been committed. The app code itself
-   is already at `3b2832c`.
-2. Decide what to do with the untracked files at the repo root
+1. (Done in `6c6d511`: the rewritten manual and generator are
+   committed.) If the user asks, regenerate the manual so its
+   troubleshooting matches the Thirteenth Round error wording.
+2. Watch for a recurrence of the Thirteenth Round stall; the fallbacks
+   are untested on iOS. Act only on a new log from the user.
+3. Decide what to do with the untracked files at the repo root
    (`Screenshot 2026-09-17 133645.png` and `.agents/`, see the
    deferred-issues list) — still unresolved, low priority.
-3. The deferred trade-offs in "Known deferred issues" stay deferred.
+4. The deferred trade-offs in "Known deferred issues" stay deferred.
    The user accepted the app as it is. Do not implement them unasked.
-4. Optional, only if the user asks: hide or gate the diagnostics ⓘ
+5. Optional, only if the user asks: hide or gate the diagnostics ⓘ
    panel, and add skip-forward/back on Review. Both were ideas, not
    bugs. The current Review controls are accepted.
 
