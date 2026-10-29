@@ -15,9 +15,3 @@ export const MIME_CANDIDATES = [
 export function pickSupportedMimeType(isSupported) {
   return MIME_CANDIDATES.find((type) => isSupported(type)) ?? null;
 }
-
-/** Every supported candidate, in preference order — the recorder walks
- * this list when a format starts but never produces any data. */
-export function listSupportedMimeTypes(isSupported) {
-  return MIME_CANDIDATES.filter((type) => isSupported(type));
-}

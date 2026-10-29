@@ -1,5 +1,5 @@
 // js/recorder.js
-import { listSupportedMimeTypes } from './mime.js';
+import { pickSupportedMimeType } from './mime.js';
 import { logEvent } from './diagnostics.js';
 
 // Emit data periodically instead of buffering the whole take until stop().
@@ -14,9 +14,16 @@ const TIMESLICE_MS = 1000;
 // past it means this attempt is dead and the next one should take over.
 const STALL_TIMEOUT_MS = 3000;
 
+// What to do with the microphone on each successive attempt. On-device logs
+// pinned the stall on audio: every format stalled with the mic attached,
+// while the first video-only attempt produced data at once — even though
+// the audio track reported 'live' and not muted. So the format is never
+// changed; the mic is swapped for a freshly requested one first, and only
+// dropped entirely as a last resort (a silent take beats no take).
+const AUDIO_ATTEMPTS = ['original', 'fresh', 'none'];
+
 export class Recorder {
   #stream = null;
-  #attempts = [];
   #attemptIndex = 0;
   #mediaRecorder = null;
   #chunks = [];
@@ -27,29 +34,23 @@ export class Recorder {
   #stallTimer = null;
 
   constructor(stream) {
-    const mimeTypes = listSupportedMimeTypes(
+    this.#mimeType = pickSupportedMimeType(
       (type) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)
     );
-    if (mimeTypes.length === 0) {
+    if (!this.#mimeType) {
       throw new Error('No supported recording format on this browser');
     }
+    logEvent('формат', this.#mimeType);
     this.#stream = stream;
-    // Every supported format with sound first; the very last resort drops
-    // the audio track, because a silent stalled-audio take beats no take.
-    this.#attempts = mimeTypes.map((mimeType) => ({ mimeType, audio: true }));
-    if (stream.getAudioTracks().length > 0) {
-      this.#attempts.push({ mimeType: mimeTypes[0], audio: false });
-    }
-    this.#watchTracks(stream);
+    this.#watchVideoTrack(stream);
+    this.#watchAudioTrack(stream);
     this.#createRecorder();
   }
 
   #createRecorder() {
-    const { mimeType, audio } = this.#attempts[this.#attemptIndex];
-    this.#mimeType = mimeType;
-    logEvent('формат', audio ? mimeType : `${mimeType} (БЕЗ ЗВУКА)`);
-    const stream = audio ? this.#stream : new MediaStream(this.#stream.getVideoTracks());
-    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+    const audio = AUDIO_ATTEMPTS[this.#attemptIndex];
+    const stream = audio === 'none' ? new MediaStream(this.#stream.getVideoTracks()) : this.#stream;
+    const mediaRecorder = new MediaRecorder(stream, { mimeType: this.#mimeType });
     this.#mediaRecorder = mediaRecorder;
 
     let resolveStopped;
@@ -84,7 +85,7 @@ export class Recorder {
    * telling an OS/camera-side stall apart from an encoding problem. A track
    * that is *already* muted when recording starts never fires `mute`, so
    * the starting state is logged too. */
-  #watchTracks(stream) {
+  #watchVideoTrack(stream) {
     const [videoTrack] = stream.getVideoTracks();
     if (videoTrack) {
       const s = typeof videoTrack.getSettings === 'function' ? videoTrack.getSettings() : {};
@@ -95,10 +96,12 @@ export class Recorder {
     } else {
       logEvent('ВНИМАНИЕ', 'в потоке нет видеодорожки');
     }
+  }
 
+  #watchAudioTrack(stream) {
     const [audioTrack] = stream.getAudioTracks();
     if (audioTrack) {
-      logEvent('аудиодорожка', describeTrack(audioTrack));
+      logEvent('аудиодорожка', `${audioTrack.label || 'без имени'}, ${describeTrack(audioTrack)}`);
       audioTrack.addEventListener('mute', () => logEvent('аудиодорожка mute'));
       audioTrack.addEventListener('unmute', () => logEvent('аудиодорожка unmute'));
       audioTrack.addEventListener('ended', () => logEvent('аудиодорожка ended'));
@@ -127,29 +130,56 @@ export class Recorder {
   /** Swaps a recorder that has produced nothing for the next attempt. Only
    * ever happens while no data exists yet, so nothing recorded is lost —
    * the take just starts a few seconds late. */
-  #checkStall() {
+  async #checkStall() {
     if (this.#stopRequested || this.#bytes > 0) return;
     if (this.#mediaRecorder.state === 'paused') {
       this.#armStallCheck(); // can't judge silence while paused; look again later
       return;
     }
     logEvent('НЕТ ДАННЫХ', `${STALL_TIMEOUT_MS / 1000}с без фрагментов, состояние ${this.#mediaRecorder.state}`);
-    if (this.#attemptIndex + 1 >= this.#attempts.length) {
+    if (this.#attemptIndex + 1 >= AUDIO_ATTEMPTS.length) {
       logEvent('ВСЕ ВАРИАНТЫ ЗАПИСИ ИСЧЕРПАНЫ');
       return;
     }
     const dead = this.#mediaRecorder;
-    this.#attemptIndex += 1;
-    this.#createRecorder();
     try {
       if (dead.state !== 'inactive') dead.stop();
     } catch {
-      // A stalled recorder may refuse even this; it's been replaced either way.
+      // A stalled recorder may refuse even this; it's replaced either way.
     }
+    this.#attemptIndex += 1;
+    if (AUDIO_ATTEMPTS[this.#attemptIndex] === 'fresh') {
+      if (!(await this.#replaceMicrophone())) this.#attemptIndex += 1; // straight to video-only
+      if (this.#stopRequested) return; // Стоп was tapped while the mic was being requested
+    }
+    if (AUDIO_ATTEMPTS[this.#attemptIndex] === 'none') logEvent('ПИШУ БЕЗ ЗВУКА');
+    this.#createRecorder();
     try {
       this.start();
     } catch (err) {
       logEvent('не удалось перезапустить', err?.name ?? err);
+    }
+  }
+
+  /** Requests a brand-new microphone track and puts it into the stream in
+   * place of the stalled one (stopping the old one, which iOS would mute
+   * anyway once a second capture of the same kind starts). Living in the
+   * stream itself means the app's normal teardown also stops it. */
+  async #replaceMicrophone() {
+    logEvent('запрашиваю микрофон заново');
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const [track] = fresh.getAudioTracks();
+      for (const old of this.#stream.getAudioTracks()) {
+        old.stop();
+        this.#stream.removeTrack(old);
+      }
+      this.#stream.addTrack(track);
+      this.#watchAudioTrack(this.#stream);
+      return true;
+    } catch (err) {
+      logEvent('микрофон не получен', err?.name ?? err);
+      return false;
     }
   }
 
