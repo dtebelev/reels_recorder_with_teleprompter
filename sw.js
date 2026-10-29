@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = 'reels-teleprompter-v19';
+const CACHE_NAME = 'reels-teleprompter-v20';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -33,8 +33,21 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network first, cache only as the offline fallback. Cache-first meant every
+// deploy reached the phone one launch late (the old code ran while the new
+// worker installed in the background), which cost whole on-device test
+// rounds to stale code. Fresh responses also refresh the offline copy.
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached ?? fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && new URL(event.request.url).origin === self.location.origin) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request).then((cached) => cached ?? Response.error()))
   );
 });
