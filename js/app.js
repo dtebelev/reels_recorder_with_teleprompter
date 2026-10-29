@@ -3,7 +3,7 @@ import { loadSettings, saveSettings } from './state.js';
 import { clampSpeed, SPEED_STEP } from './scroll.js';
 import { CameraError, acquireFrontCameraStream, stopStream } from './camera.js';
 import { Teleprompter } from './teleprompter.js';
-import { Recorder } from './recorder.js';
+import { Recorder, primeAudio } from './recorder.js';
 import { startSession, logEvent, getReport } from './diagnostics.js';
 
 if ('serviceWorker' in navigator) {
@@ -290,6 +290,7 @@ async function renderRehearsal() {
     // renderRecording() builds a fresh Teleprompter for the take
     // (cameraStream itself stays alive and is reused).
     teleprompter.stop();
+    primeAudio(); // must run inside this tap — see js/recorder.js
     renderCountdown();
   });
 }
